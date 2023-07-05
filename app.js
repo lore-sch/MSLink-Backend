@@ -34,3 +34,18 @@ app.post('/SignUp', async (req, res) => {
       res.status(500).json({ error: 'Internal server error' });
     }
   });
+
+  app.post('/ProfileSetupPage', async (req, res) => {
+    try {
+      const { userName, userStory } = req.body;
+      const query = 'INSERT INTO user_profile (user_story, user_id, image_id, user_profile_name) VALUES ($1, 1, 1, $2 ) RETURNING *';
+      const values = [userName, userStory];
+      console.log(userName, userStory)
+      const result = await pool.query(query, values);
+  
+      res.status(201).json(result.rows[0]);
+    } catch (error) {
+      console.error('Error saving profile', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
