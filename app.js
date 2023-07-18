@@ -89,11 +89,10 @@ app.get('/LiveFeed', async (req, res) => {
 //route to post comments to individual posts
 app.post('/PostResponse', async (req, res) => {
   try {
-    const { userComment } = req.body
+    const { userComment, user_post_id, user_id } = req.body
     const query =
-      'INSERT INTO post_comment (post_comment, user_post_id, user_id, post_comment_timestamp) VALUES ($1, 12, 2, CURRENT_TIMESTAMP) RETURNING *'
-    const values = [userComment]
-    console.log(post_comment, user_post_id, user_id, post_comment_timestamp)
+      'INSERT INTO post_comment (post_comment, user_post_id, user_id, post_comment_timestamp) VALUES ($1, $2, 2, CURRENT_TIMESTAMP) RETURNING *'
+    const values = [userComment, user_post_id]
     const result = await pool.query(query, values)
 
     res.status(201).json(result.rows[0])
@@ -107,12 +106,14 @@ app.get('/PostResponse', async (req, res) => {
   const { user_post_id } = req.query; // Get the user_post_id from the query parameters
   try {
     const query = `
-      SELECT *
-      FROM post_comment
-      JOIN user_credentials ON user_credentials.user_id = post_comment.user_id
-      JOIN user_post ON user_post.user_post_id = post_comment.user_post_id
-      WHERE user_post.user_post_id = $1
-      ORDER BY post_comment_timestamp DESC
+    SELECT post_comment.*, user_profile.user_profile_name
+    FROM post_comment
+    JOIN user_credentials ON user_credentials.user_id = post_comment.user_id
+    JOIN user_post ON user_post.user_post_id = post_comment.user_post_id
+    JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+    WHERE user_post.user_post_id = $1
+    ORDER BY post_comment_timestamp DESC;
+
     `;
 
     const result = await pool.query(query, [user_post_id]);
