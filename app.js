@@ -102,8 +102,9 @@ app.post('/PostResponse', async (req, res) => {
   }
 })
 
+//Renders comments and user profile name on each post
 app.get('/PostResponse', async (req, res) => {
-  const { user_post_id } = req.query; // Get the user_post_id from the query parameters
+  const { user_post_id } = req.query; 
   try {
     const query = `
     SELECT post_comment.*, user_profile.user_profile_name
@@ -113,7 +114,6 @@ app.get('/PostResponse', async (req, res) => {
     JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
     WHERE user_post.user_post_id = $1
     ORDER BY post_comment_timestamp DESC;
-
     `;
 
     const result = await pool.query(query, [user_post_id]);
@@ -123,4 +123,94 @@ app.get('/PostResponse', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+//post emoji reactions to database
+//This query needs looked at to stop duplicate rows
+app.post('/PostReaction', async (req, res) => {
+  try {
+    const { user_post_id, reactionType } = req.body;
+
+    // Check if a row with the same user_post_id exists in the post_reactions table
+    const queryCheckExisting = 'SELECT * FROM post_reactions WHERE user_post_id = $1';
+    const valuesCheckExisting = [user_post_id];
+    const existingReaction = await pool.query(queryCheckExisting, valuesCheckExisting);
+
+    if (existingReaction.rows.length === 0) {
+      // If no existing reaction, insert a new row for the specific post
+      const reactionValues = {
+        like: 0,
+        love: 0,
+        laugh: 0,
+        sad: 0,
+        anger: 0,
+      };
+
+      // Increment the count for the corresponding emoji
+      reactionValues[reactionType] += 1;
+
+      const queryInsert = 'INSERT INTO post_reactions (user_post_id, post_like, post_love, post_laugh, post_sad, post_anger) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *';
+      const valuesInsert = [
+        user_post_id,
+        reactionValues.like,
+        reactionValues.love,
+        reactionValues.laugh,
+        reactionValues.sad,
+        reactionValues.anger,
+      ];
+
+      const resultInsert = await pool.query(queryInsert, valuesInsert);
+      res.status(201).json(resultInsert.rows[0]);
+    } else {
+      // If existing reaction, update the count for the corresponding emoji
+      const reactionValues = {
+        like: existingReaction.rows[0].post_like,
+        love: existingReaction.rows[0].post_love,
+        laugh: existingReaction.rows[0].post_laugh,
+        sad: existingReaction.rows[0].post_sad,
+        anger: existingReaction.rows[0].post_anger,
+      };
+
+      // Increment the count for the corresponding emoji
+      reactionValues[reactionType] += 1;
+
+      const queryUpdate = 'UPDATE post_reactions SET post_like = $1, post_love = $2, post_laugh = $3, post_sad = $4, post_anger = $5 WHERE user_post_id = $6 RETURNING *';
+      const valuesUpdate = [
+        reactionValues.like,
+        reactionValues.love,
+        reactionValues.laugh,
+        reactionValues.sad,
+        reactionValues.anger,
+        user_post_id,
+      ];
+
+      const resultUpdate = await pool.query(queryUpdate, valuesUpdate);
+      res.status(200).json(resultUpdate.rows[0]);
+    }
+
+    // Delete any duplicate rows in post_reactions
+    const queryDeleteDuplicateRows = `
+      DELETE FROM post_reactions
+      WHERE ctid NOT IN (
+        SELECT min(ctid)
+        FROM post_reactions
+        GROUP BY user_post_id, post_like, post_love, post_laugh, post_sad, post_anger
+      )
+    `;
+    await pool.query(queryDeleteDuplicateRows);
+  } catch (error) {
+    console.error('Error submitting post', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+
+
+
+
+
+
+
+
+
 
