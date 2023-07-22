@@ -20,6 +20,25 @@ app.listen(port, () => {
   console.log(`Server is running on port ${port}`)
 })
 
+//set up log in authentication
+app.post('/LogIn', async (req, res) => {
+  try {
+    const { userEmail, userPassword } = req.body;
+    const query = 'SELECT * FROM user_credentials WHERE user_email = $1 AND user_password = $2';
+    const values = [userEmail, userPassword];
+    const result = await pool.query(query, values);
+
+    if (result.rows.length > 0) {
+      res.status(200).json({ success: true, message: 'Authentication successful' });
+    } else {
+      res.status(401).json({ success: false, message: 'Authentication failed' });
+    }
+  } catch (error) {
+    console.error('Error signing in', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 //post route for sign up page- email and password
 app.post('/SignUp', async (req, res) => {
   try {
@@ -202,6 +221,29 @@ app.post('/PostReaction', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+app.get('/PostReactionCount', async (req, res) => {
+  const { user_post_id } = req.query;
+  try {
+    const query = `
+    SELECT * FROM post_reactions WHERE user_post_id = $1
+    `
+    const result = await pool.query(query, [user_post_id])
+    
+    res.status(200).json(result.rows)
+  } catch (error) {
+    console.error('Error fetching posts', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+
+
+
+
+
+
+
 
 
 
