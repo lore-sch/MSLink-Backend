@@ -70,6 +70,21 @@ app.post('/ProfileSetupPage', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' })
   }
 })
+//post route to edit profile page
+app.post('/ProfileEditPage', async (req, res) => {
+  try {
+    const { userName, userStory } = req.body
+    const query =
+      'UPDATE user_profile SET user_story = $1,user_profile_name = $2 WHERE user_id = 1 RETURNING *'
+    const values = [userName, userStory]
+    const result = await pool.query(query, values)
+
+    res.status(201).json(result.rows[0])
+  } catch (error) {
+    console.error('Error saving profile', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
 
 //route for user to post new status to live feed
 app.post('/LiveFeed', async (req, res) => {
