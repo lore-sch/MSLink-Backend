@@ -4,6 +4,8 @@ const { Pool } = require('pg') //creates pool of database connections
 
 const app = express() //instance of express
 app.use(express.json()) //middleware function of req/res (use of api)
+const jwt = require('jsonwebtoken') //jwt web library import
+const crypto = require('crypto') //node crypto to has the secret key
 
 //connect to postgres database with a new pool (new connection)
 const pool = new Pool({
@@ -20,24 +22,58 @@ app.listen(port, () => {
   console.log(`Server is running on port ${port}`)
 })
 
+//generate jwt token function
+const generateToken = (user) => {
+  const payload = {
+    userId: user.user_id,
+    useremail: user.user_email,
+  }
+
+  //creates secure secret key hashed so it not hardcoded in code
+  const generateSecretKey = () => {
+    return crypto.randomBytes(64).toString('hex')
+  }
+  //creates secret key at random
+  const secretKey = generateSecretKey()
+
+  const options = {
+    expiresIn: '1h',
+  }
+  
+  const token = jwt.sign(payload, secretKey, options)
+
+  const refreshToken = jwt.sign({ userId: user.user_id }, generateSecretKey(), {
+    expiresIn: '30d'
+  });
+
+  return { token, refreshToken }
+}
+
 //set up log in authentication
 app.post('/LogIn', async (req, res) => {
   try {
-    const { userEmail, userPassword } = req.body;
-    const query = 'SELECT * FROM user_credentials WHERE user_email = $1 AND user_password = $2';
-    const values = [userEmail, userPassword];
-    const result = await pool.query(query, values);
+    const { userEmail, userPassword } = req.body
+    const query =
+      'SELECT * FROM user_credentials WHERE user_email = $1 AND user_password = $2'
+    const values = [userEmail, userPassword]
+    const result = await pool.query(query, values)
 
     if (result.rows.length > 0) {
-      res.status(200).json({ success: true, message: 'Authentication successful' });
+      const user = result.rows[0];
+      const tokens = generateToken(user);
+      token = tokens.token;
+      refreshToken = tokens.refreshToken;
+      res
+        .status(200)
+        .json({ success: true, message: 'Authentication successful', token, refreshToken })
     } else {
-      res.status(401).json({ success: false, message: 'Authentication failed' });
+      res.status(401).json({ success: false, message: 'Authentication failed' })
     }
   } catch (error) {
-    console.error('Error signing in', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error signing in', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
-});
+})
 
 //post route for sign up page- email and password
 app.post('/SignUp', async (req, res) => {
@@ -138,7 +174,7 @@ app.post('/PostResponse', async (req, res) => {
 
 //Renders comments and user profile name on each post
 app.get('/PostResponse', async (req, res) => {
-  const { user_post_id } = req.query; 
+  const { user_post_id } = req.query
   try {
     const query = `
     SELECT post_comment.*, user_profile.user_profile_name
@@ -148,26 +184,30 @@ app.get('/PostResponse', async (req, res) => {
     JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
     WHERE user_post.user_post_id = $1
     ORDER BY post_comment_timestamp DESC;
-    `;
+    `
 
-    const result = await pool.query(query, [user_post_id]);
-    res.status(200).json(result.rows);
+    const result = await pool.query(query, [user_post_id])
+    res.status(200).json(result.rows)
   } catch (error) {
-    console.error('Error fetching comments', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error fetching comments', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
-});
+})
 
 //post emoji reactions to database
 //This query needs looked at to stop duplicate rows
 app.post('/PostReaction', async (req, res) => {
   try {
-    const { user_post_id, reactionType } = req.body;
+    const { user_post_id, reactionType } = req.body
 
     // Check if a row with the same user_post_id exists in the post_reactions table
-    const queryCheckExisting = 'SELECT * FROM post_reactions WHERE user_post_id = $1';
-    const valuesCheckExisting = [user_post_id];
-    const existingReaction = await pool.query(queryCheckExisting, valuesCheckExisting);
+    const queryCheckExisting =
+      'SELECT * FROM post_reactions WHERE user_post_id = $1'
+    const valuesCheckExisting = [user_post_id]
+    const existingReaction = await pool.query(
+      queryCheckExisting,
+      valuesCheckExisting
+    )
 
     if (existingReaction.rows.length === 0) {
       // If no existing reaction, insert a new row for the specific post
@@ -177,12 +217,13 @@ app.post('/PostReaction', async (req, res) => {
         laugh: 0,
         sad: 0,
         anger: 0,
-      };
+      }
 
       // Increment the count for the corresponding emoji
-      reactionValues[reactionType] += 1;
+      reactionValues[reactionType] += 1
 
-      const queryInsert = 'INSERT INTO post_reactions (user_post_id, post_like, post_love, post_laugh, post_sad, post_anger) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *';
+      const queryInsert =
+        'INSERT INTO post_reactions (user_post_id, post_like, post_love, post_laugh, post_sad, post_anger) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *'
       const valuesInsert = [
         user_post_id,
         reactionValues.like,
@@ -190,10 +231,10 @@ app.post('/PostReaction', async (req, res) => {
         reactionValues.laugh,
         reactionValues.sad,
         reactionValues.anger,
-      ];
+      ]
 
-      const resultInsert = await pool.query(queryInsert, valuesInsert);
-      res.status(201).json(resultInsert.rows[0]);
+      const resultInsert = await pool.query(queryInsert, valuesInsert)
+      res.status(201).json(resultInsert.rows[0])
     } else {
       // If existing reaction, update the count for the corresponding emoji
       const reactionValues = {
@@ -202,12 +243,13 @@ app.post('/PostReaction', async (req, res) => {
         laugh: existingReaction.rows[0].post_laugh,
         sad: existingReaction.rows[0].post_sad,
         anger: existingReaction.rows[0].post_anger,
-      };
+      }
 
       // Increment the count for the corresponding emoji
-      reactionValues[reactionType] += 1;
+      reactionValues[reactionType] += 1
 
-      const queryUpdate = 'UPDATE post_reactions SET post_like = $1, post_love = $2, post_laugh = $3, post_sad = $4, post_anger = $5 WHERE user_post_id = $6 RETURNING *';
+      const queryUpdate =
+        'UPDATE post_reactions SET post_like = $1, post_love = $2, post_laugh = $3, post_sad = $4, post_anger = $5 WHERE user_post_id = $6 RETURNING *'
       const valuesUpdate = [
         reactionValues.like,
         reactionValues.love,
@@ -215,10 +257,10 @@ app.post('/PostReaction', async (req, res) => {
         reactionValues.sad,
         reactionValues.anger,
         user_post_id,
-      ];
+      ]
 
-      const resultUpdate = await pool.query(queryUpdate, valuesUpdate);
-      res.status(200).json(resultUpdate.rows[0]);
+      const resultUpdate = await pool.query(queryUpdate, valuesUpdate)
+      res.status(200).json(resultUpdate.rows[0])
     }
 
     // Delete any duplicate rows in post_reactions
@@ -229,45 +271,25 @@ app.post('/PostReaction', async (req, res) => {
         FROM post_reactions
         GROUP BY user_post_id, post_like, post_love, post_laugh, post_sad, post_anger
       )
-    `;
-    await pool.query(queryDeleteDuplicateRows);
+    `
+    await pool.query(queryDeleteDuplicateRows)
   } catch (error) {
-    console.error('Error submitting post', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error submitting post', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
-});
+})
 
 app.get('/PostReactionCount', async (req, res) => {
-  const { user_post_id } = req.query;
+  const { user_post_id } = req.query
   try {
     const query = `
     SELECT * FROM post_reactions WHERE user_post_id = $1
     `
     const result = await pool.query(query, [user_post_id])
-    
+
     res.status(200).json(result.rows)
   } catch (error) {
     console.error('Error fetching posts', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
