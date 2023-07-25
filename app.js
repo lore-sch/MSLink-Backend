@@ -61,14 +61,16 @@ app.post('/LogIn', async (req, res) => {
     if (result.rows.length > 0) {
       const user = result.rows[0];
       const tokens = generateToken(user);
-      token = tokens.token;
+      const token = tokens.token;
       refreshToken = tokens.refreshToken;
       res
         .status(200)
-        .json({ success: true, message: 'Authentication successful', token, refreshToken })
+        .json({ success: true, message: 'Authentication successful', data: { token, refreshToken, user_id: user.user_id } })
+        
     } else {
       res.status(401).json({ success: false, message: 'Authentication failed' })
     }
+
   } catch (error) {
     console.error('Error signing in', error)
     res.status(500).json({ error: 'Internal server error' })
@@ -94,10 +96,10 @@ app.post('/SignUp', async (req, res) => {
 //post route for profile set up
 app.post('/ProfileSetupPage', async (req, res) => {
   try {
-    const { userName, userStory } = req.body
+    const { user_id, userName, userStory } = req.body
     const query =
-      'INSERT INTO user_profile (user_story, user_id, image_id, user_profile_name) VALUES ($1, 1, 1, $2 ) RETURNING *'
-    const values = [userName, userStory]
+    'UPDATE user_profile SET user_story = $1, user_profile_name = $2 WHERE user_id = $3 RETURNING *'
+    const values = [userName, userStory, user_id]
     const result = await pool.query(query, values)
 
     res.status(201).json(result.rows[0])
@@ -106,6 +108,22 @@ app.post('/ProfileSetupPage', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' })
   }
 })
+
+//route to get profile information
+app.get('/ProfileEditPage', async (req, res) => {
+  try {
+    const { user_id } = req.query
+    const query =
+      'SELECT * FROM user_profile WHERE user_id = $1'
+    const result = await pool.query(query, [user_id])
+
+    res.status(201).json(result.rows[0])
+  } catch (error) {
+    console.error('Error getting profile', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
 //post route to edit profile page
 app.post('/ProfileEditPage', async (req, res) => {
   try {
