@@ -125,28 +125,46 @@ app.get('/ProfileEditPage', async (req, res) => {
 })
 
 //post route to edit profile page
+//Tries to update existing profile, checks if rows changed, then inserts if not
 app.post('/ProfileEditPage', async (req, res) => {
-  try {
-    const { userName, userStory } = req.body
-    const query =
-      'UPDATE user_profile SET user_story = $1,user_profile_name = $2 WHERE user_id = 1 RETURNING *'
-    const values = [userName, userStory]
-    const result = await pool.query(query, values)
+  const { userName, userStory, user_id } = req.body;
+  const client = await pool.connect();
 
-    res.status(201).json(result.rows[0])
+  try {
+    await client.query('BEGIN');
+    const updateQuery =
+      'UPDATE user_profile SET user_story = $1, user_profile_name = $2 WHERE user_id = $3 RETURNING *';
+    const updateValues = [userStory, userName, user_id];
+    const updateResult = await client.query(updateQuery, updateValues);
+
+    if (updateResult.rows.length > 0) {
+      await client.query('COMMIT'); // profile updates
+      res.status(201).json(updateResult.rows[0]);
+    } else {
+      const insertQuery =
+        'INSERT INTO user_profile (user_story, user_profile_name, user_id) VALUES ($1, $2, $3) RETURNING *';
+      const insertValues = [userStory, userName, user_id];
+      const insertResult = await client.query(insertQuery, insertValues);
+      await client.query('COMMIT'); // or new profile is inserted
+      res.status(201).json(insertResult.rows[0]);
+    }
   } catch (error) {
-    console.error('Error saving profile', error)
-    res.status(500).json({ error: 'Internal server error' })
+    await client.query('ROLLBACK'); 
+    console.error('Error saving profile', error);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release(); 
   }
-})
+});
+
 
 //route for user to post new status to live feed
 app.post('/LiveFeed', async (req, res) => {
   try {
-    const { userPost } = req.body
+    const { userPost, user_id } = req.body
     const query =
-      'INSERT INTO user_post (user_post, user_post_timestamp, user_id) VALUES ($1, CURRENT_TIMESTAMP, 2) RETURNING *'
-    const values = [userPost]
+      'INSERT INTO user_post (user_post, user_post_timestamp, user_id) VALUES ($1, CURRENT_TIMESTAMP, $2) RETURNING *'
+    const values = [userPost, user_id]
     const result = await pool.query(query, values)
 
     res.status(201).json(result.rows[0])
@@ -179,8 +197,8 @@ app.post('/PostResponse', async (req, res) => {
   try {
     const { userComment, user_post_id, user_id } = req.body
     const query =
-      'INSERT INTO post_comment (post_comment, user_post_id, user_id, post_comment_timestamp) VALUES ($1, $2, 2, CURRENT_TIMESTAMP) RETURNING *'
-    const values = [userComment, user_post_id]
+      'INSERT INTO post_comment (post_comment, user_post_id, user_id, post_comment_timestamp) VALUES ($1, $2, $3, CURRENT_TIMESTAMP) RETURNING *'
+    const values = [userComment, user_post_id, user_id]
     const result = await pool.query(query, values)
 
     res.status(201).json(result.rows[0])
@@ -214,7 +232,7 @@ app.get('/PostResponse', async (req, res) => {
 
 //post emoji reactions to database
 //This query needs looked at to stop duplicate rows
-app.post('/PostReaction', async (req, res) => {
+app.post('/SubmitReaction', async (req, res) => {
   try {
     const { user_post_id, reactionType } = req.body
 
@@ -297,12 +315,13 @@ app.post('/PostReaction', async (req, res) => {
   }
 })
 
+//fetches reactions but not currently working- all 0
 app.get('/PostReactionCount', async (req, res) => {
   const { user_post_id } = req.query
   try {
     const query = `
     SELECT * FROM post_reactions WHERE user_post_id = $1
-    `
+    `;
     const result = await pool.query(query, [user_post_id])
 
     res.status(200).json(result.rows)
