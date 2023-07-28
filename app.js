@@ -4,8 +4,10 @@ const { Pool } = require('pg') //creates pool of database connections
 
 const app = express() //instance of express
 app.use(express.json()) //middleware function of req/res (use of api)
+app.use('/uploads', express.static('uploads')) //static directory for images
 const jwt = require('jsonwebtoken') //jwt web library import
 const crypto = require('crypto') //node crypto to has the secret key
+const multer = require('multer') //import multer for file uploads
 
 //connect to postgres database with a new pool (new connection)
 const pool = new Pool({
@@ -39,15 +41,28 @@ const generateToken = (user) => {
   const options = {
     expiresIn: '1h',
   }
-  
+
   const token = jwt.sign(payload, secretKey, options)
 
   const refreshToken = jwt.sign({ userId: user.user_id }, generateSecretKey(), {
-    expiresIn: '30d'
-  });
+    expiresIn: '30d',
+  })
 
   return { token, refreshToken }
 }
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/') // Destination folder where the uploaded files will be saved
+  },
+  filename: function (req, file, cb) {
+    // Use the current timestamp as the filename to avoid conflicts
+    cb(null, Date.now() + '-' + file.originalname)
+  },
+})
+
+// Initialize the multer middleware with the storage configuration
+const upload = multer({ storage: storage })
 
 //set up log in authentication
 app.post('/LogIn', async (req, res) => {
@@ -59,18 +74,18 @@ app.post('/LogIn', async (req, res) => {
     const result = await pool.query(query, values)
 
     if (result.rows.length > 0) {
-      const user = result.rows[0];
-      const tokens = generateToken(user);
-      const token = tokens.token;
-      refreshToken = tokens.refreshToken;
-      res
-        .status(200)
-        .json({ success: true, message: 'Authentication successful', data: { token, refreshToken, user_id: user.user_id } })
-        
+      const user = result.rows[0]
+      const tokens = generateToken(user)
+      const token = tokens.token
+      refreshToken = tokens.refreshToken
+      res.status(200).json({
+        success: true,
+        message: 'Authentication successful',
+        data: { token, refreshToken, user_id: user.user_id },
+      })
     } else {
       res.status(401).json({ success: false, message: 'Authentication failed' })
     }
-
   } catch (error) {
     console.error('Error signing in', error)
     res.status(500).json({ error: 'Internal server error' })
@@ -93,31 +108,29 @@ app.post('/SignUp', async (req, res) => {
   }
 })
 
-//post route for profile set up
-app.post('/ProfileSetupPage', async (req, res) => {
-  try {
-    const { user_id, userName, userStory } = req.body
-    const query =
-    'UPDATE user_profile SET user_story = $1, user_profile_name = $2 WHERE user_id = $3 RETURNING *'
-    const values = [userName, userStory, user_id]
-    const result = await pool.query(query, values)
-
-    res.status(201).json(result.rows[0])
-  } catch (error) {
-    console.error('Error saving profile', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
-
 //route to get profile information
+// Route to get profile information and image URL
 app.get('/ProfileEditPage', async (req, res) => {
   try {
     const { user_id } = req.query
+    console.log('Fetching user profile for user_id:', user_id)
+
     const query =
-      'SELECT * FROM user_profile WHERE user_id = $1'
+      'SELECT user_profile.*, image.image_path ' +
+      'FROM user_profile ' +
+      'LEFT JOIN image ON user_profile.image_id = image.image_id ' +
+      'WHERE user_profile.user_id = $1'
+
     const result = await pool.query(query, [user_id])
 
-    res.status(201).json(result.rows[0])
+    if (result.rows.length > 0) {
+      const userProfileWithImage = result.rows[0]
+      console.log('User profile data:', userProfileWithImage)
+      res.status(200).json(userProfileWithImage)
+    } else {
+      console.log('User profile not found for user_id:', user_id)
+      res.status(404).json({ error: 'User profile not found' })
+    }
   } catch (error) {
     console.error('Error getting profile', error)
     res.status(500).json({ error: 'Internal server error' })
@@ -126,37 +139,66 @@ app.get('/ProfileEditPage', async (req, res) => {
 
 //post route to edit profile page
 //Tries to update existing profile, checks if rows changed, then inserts if not
-app.post('/ProfileEditPage', async (req, res) => {
-  const { userName, userStory, user_id } = req.body;
-  const client = await pool.connect();
-
+app.post('/ProfileEditPage', upload.single('image'), async (req, res) => {
+  const { userName, userStory, user_id } = req.body
+  let client = null
   try {
-    await client.query('BEGIN');
-    const updateQuery =
-      'UPDATE user_profile SET user_story = $1, user_profile_name = $2 WHERE user_id = $3 RETURNING *';
-    const updateValues = [userStory, userName, user_id];
-    const updateResult = await client.query(updateQuery, updateValues);
+    client = await pool.connect()
+    await client.query('BEGIN')
 
-    if (updateResult.rows.length > 0) {
-      await client.query('COMMIT'); // profile updates
-      res.status(201).json(updateResult.rows[0]);
+    // Check if an image was uploaded and insert it into the image table
+    let image_id = null
+    if (req.file) {
+      const image_path = req.file.path
+
+      // Check if the image already exists in the image table based on the image_path
+      const checkImageQuery = 'SELECT image_id FROM image WHERE image_path = $1'
+      const checkImageValues = [image_path]
+      const checkImageResult = await client.query(
+        checkImageQuery,
+        checkImageValues
+      )
+
+      if (checkImageResult.rowCount > 0) {
+        // If the image already exists, use its image_id
+        image_id = checkImageResult.rows[0].image_id
+      } else {
+        // If the image doesn't exist, insert it into the image table and get its image_id
+        const imageQuery =
+          'INSERT INTO image (image_path) VALUES ($1) RETURNING image_id'
+        const imageValues = [image_path]
+        const imageResult = await client.query(imageQuery, imageValues)
+        image_id = imageResult.rows[0].image_id
+      }
+    }
+
+    // Try to update the existing profile, and if no rows are changed, insert a new profile
+    const updateQuery =
+      'UPDATE user_profile SET user_story = $1, user_profile_name = $2, image_id = $3 WHERE user_id = $4 RETURNING *'
+    const updateValues = [userStory, userName, image_id, user_id]
+    const updateResult = await client.query(updateQuery, updateValues)
+
+    if (updateResult.rowCount > 0) {
+      await client.query('COMMIT') // profile updates
+      res.status(201).json(updateResult.rows[0])
     } else {
       const insertQuery =
-        'INSERT INTO user_profile (user_story, user_profile_name, user_id) VALUES ($1, $2, $3) RETURNING *';
-      const insertValues = [userStory, userName, user_id];
-      const insertResult = await client.query(insertQuery, insertValues);
-      await client.query('COMMIT'); // or new profile is inserted
-      res.status(201).json(insertResult.rows[0]);
+        'INSERT INTO user_profile (user_story, user_profile_name, user_id, image_id) VALUES ($1, $2, $3, $4) RETURNING *'
+      const insertValues = [userStory, userName, user_id, image_id]
+      const insertResult = await client.query(insertQuery, insertValues)
+      await client.query('COMMIT') // new profile is inserted
+      res.status(201).json(insertResult.rows[0])
     }
   } catch (error) {
-    await client.query('ROLLBACK'); 
-    console.error('Error saving profile', error);
-    res.status(500).json({ error: 'Internal server error' });
+    await client.query('ROLLBACK')
+    console.error('Error saving profile', error)
+    res.status(500).json({ error: 'Internal server error' })
   } finally {
-    client.release(); 
+    if (client) {
+      client.release()
+    }
   }
-});
-
+})
 
 //route for user to post new status to live feed
 app.post('/LiveFeed', async (req, res) => {
@@ -321,7 +363,7 @@ app.get('/PostReactionCount', async (req, res) => {
   try {
     const query = `
     SELECT * FROM post_reactions WHERE user_post_id = $1
-    `;
+    `
     const result = await pool.query(query, [user_post_id])
 
     res.status(200).json(result.rows)
