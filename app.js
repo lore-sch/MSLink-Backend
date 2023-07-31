@@ -113,8 +113,6 @@ app.post('/SignUp', async (req, res) => {
 app.get('/ProfileEditPage', async (req, res) => {
   try {
     const { user_id } = req.query
-    console.log('Fetching user profile for user_id:', user_id)
-
     const query =
       'SELECT user_profile.*, image.image_path ' +
       'FROM user_profile ' +
@@ -125,7 +123,6 @@ app.get('/ProfileEditPage', async (req, res) => {
 
     if (result.rows.length > 0) {
       const userProfileWithImage = result.rows[0]
-      console.log('User profile data:', userProfileWithImage)
       res.status(200).json(userProfileWithImage)
     } else {
       console.log('User profile not found for user_id:', user_id)
@@ -201,30 +198,74 @@ app.post('/ProfileEditPage', upload.single('image'), async (req, res) => {
 })
 
 //route for user to post new status to live feed
-app.post('/LiveFeed', async (req, res) => {
+// Merge both post routes into a single route
+app.post('/LiveFeed', upload.single('image'), async (req, res) => {
   try {
     const { userPost, user_id } = req.body
-    const query =
-      'INSERT INTO user_post (user_post, user_post_timestamp, user_id) VALUES ($1, CURRENT_TIMESTAMP, $2) RETURNING *'
-    const values = [userPost, user_id]
-    const result = await pool.query(query, values)
+    const image_path = req.file ? req.file.path : null // Check if an image is included in the request
 
-    res.status(201).json(result.rows[0])
+    if (image_path) {
+      // If an image is present, insert image data into the database
+      const imageQuery =
+        'INSERT INTO image (image_path) VALUES ($1) RETURNING image_id'
+      const imageValues = [image_path]
+      const imageResult = await pool.query(imageQuery, imageValues)
+      const image_id = imageResult.rows[0].image_id
+
+      // Insert image data into the user_image table
+      const userImageQuery =
+        'INSERT INTO user_image (user_id, image_id, user_post_timestamp) VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING *'
+      const userImageValues = [user_id, image_id]
+      const userImageResult = await pool.query(userImageQuery, userImageValues)
+
+      res.status(201).json(userImageResult.rows[0])
+    } else {
+      // If no image is present, insert only the text data into the database
+      const query =
+        'INSERT INTO user_post (user_post, user_post_timestamp, user_id) VALUES ($1, CURRENT_TIMESTAMP, $2) RETURNING *'
+      const values = [userPost, user_id]
+      const result = await pool.query(query, values)
+
+      res.status(201).json(result.rows[0])
+    }
   } catch (error) {
     console.error('Error submitting post', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
 
-//gets posts ordered by date/time from database
+//gets posts and images ordered by date/time from database
 app.get('/LiveFeed', async (req, res) => {
   try {
     const query = `
-    SELECT user_post.*, user_profile.user_profile_name
-    FROM user_post
-    JOIN user_credentials ON user_post.user_id = user_credentials.user_id
-    JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
-    ORDER BY user_post.user_post_timestamp DESC
+    SELECT
+    'user_post' AS type,
+    user_post.user_post_id::text as user_post_id,
+    user_post.user_post,
+    user_post.user_post_timestamp::character varying as user_post_timestamp,
+    user_profile.user_profile_name,
+    null as image_id,
+    null as image_path,
+    null as user_image_id
+  FROM user_post
+  JOIN user_credentials ON user_post.user_id = user_credentials.user_id
+  JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+  
+  UNION
+  SELECT
+    'user_image' AS type,
+    null as user_post_id,
+    null as user_post,
+    user_image.user_post_timestamp::character varying as user_post_timestamp,
+    user_profile.user_profile_name,
+    image.image_id::text as image_id,
+    image.image_path,
+    user_image.user_image_id::text as user_image_id
+  FROM user_image
+  JOIN image ON user_image.image_id = image.image_id
+  JOIN user_credentials ON user_image.user_id = user_credentials.user_id
+  JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+  ORDER BY user_post_timestamp DESC;
     `
     const result = await pool.query(query)
     res.status(200).json(result.rows)
@@ -250,6 +291,28 @@ app.post('/PostResponse', async (req, res) => {
   }
 })
 
+//post comment to images
+app.post('/ImageResponse', async (req, res) => {
+  try {
+    const { userComment, user_image_id, user_id } = req.body
+
+    console.log('Received userComment:', userComment)
+    console.log('Received user_image_id:', user_image_id)
+    console.log('Received user_id:', user_id)
+    const query =
+      'INSERT INTO image_comment (post_comment, post_comment_timestamp, user_image_id, user_id) VALUES ($1, CURRENT_TIMESTAMP, $2, $3) RETURNING *'
+    const values = [userComment, user_image_id, user_id]
+    const result = await pool.query(query, values)
+
+    console.log('Inserted comment:', result.rows[0])
+
+    res.status(201).json(result.rows[0])
+  } catch (error) {
+    console.error('Error submitting comment', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
 //Renders comments and user profile name on each post
 app.get('/PostResponse', async (req, res) => {
   const { user_post_id } = req.query
@@ -268,6 +331,33 @@ app.get('/PostResponse', async (req, res) => {
     res.status(200).json(result.rows)
   } catch (error) {
     console.error('Error fetching comments', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+app.get('/ImageResponse', async (req, res) => {
+  const { user_image_id } = req.query
+  console.log('Received user_image_id:', user_image_id)
+  try {
+    const query = `
+    SELECT
+    image_comment.*,
+    user_profile.user_profile_name,
+    image.image_path
+  FROM image_comment
+  JOIN user_credentials ON user_credentials.user_id = image_comment.user_id
+  JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+  JOIN user_image ON user_image.user_image_id = image_comment.user_image_id
+  JOIN image ON user_image.image_id = image.image_id
+  WHERE image_comment.user_image_id = $1
+  ORDER BY post_comment_timestamp DESC;
+    `
+
+    const result = await pool.query(query, [user_image_id])
+    console.log('Fetched comments:', result.rows)
+    res.status(200).json(result.rows)
+  } catch (error) {
+    console.error('Error fetching image comments:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
