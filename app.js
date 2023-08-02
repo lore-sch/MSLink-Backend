@@ -296,15 +296,10 @@ app.post('/ImageResponse', async (req, res) => {
   try {
     const { userComment, user_image_id, user_id } = req.body
 
-    console.log('Received userComment:', userComment)
-    console.log('Received user_image_id:', user_image_id)
-    console.log('Received user_id:', user_id)
     const query =
       'INSERT INTO image_comment (post_comment, post_comment_timestamp, user_image_id, user_id) VALUES ($1, CURRENT_TIMESTAMP, $2, $3) RETURNING *'
     const values = [userComment, user_image_id, user_id]
     const result = await pool.query(query, values)
-
-    console.log('Inserted comment:', result.rows[0])
 
     res.status(201).json(result.rows[0])
   } catch (error) {
@@ -459,6 +454,21 @@ app.get('/PostReactionCount', async (req, res) => {
     res.status(200).json(result.rows)
   } catch (error) {
     console.error('Error fetching posts', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+app.post('/UserPoll', async (req, res) => {
+  try {
+    const { pollQuestion, pollOptions, user_id } = req.body
+    const query =
+      'INSERT INTO user_poll (user_poll_question, user_poll_option_1, user_poll_option_2, user_poll_option_3, user_id, poll_timestamp) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) RETURNING *'
+    const values = [pollQuestion, pollOptions[0], pollOptions[1], pollOptions[2], user_id]
+    const result = await pool.query(query, values)
+
+    res.status(201).json(result.rows[0])
+  } catch (error) {
+    console.error('Error submitting poll', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
