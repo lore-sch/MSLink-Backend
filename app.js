@@ -239,33 +239,64 @@ app.get('/LiveFeed', async (req, res) => {
   try {
     const query = `
     SELECT
-    'user_post' AS type,
-    user_post.user_post_id::text as user_post_id,
-    user_post.user_post,
-    user_post.user_post_timestamp::character varying as user_post_timestamp,
-    user_profile.user_profile_name,
-    null as image_id,
-    null as image_path,
-    null as user_image_id
-  FROM user_post
-  JOIN user_credentials ON user_post.user_id = user_credentials.user_id
-  JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
-  
-  UNION
-  SELECT
-    'user_image' AS type,
-    null as user_post_id,
-    null as user_post,
-    user_image.user_post_timestamp::character varying as user_post_timestamp,
-    user_profile.user_profile_name,
-    image.image_id::text as image_id,
-    image.image_path,
-    user_image.user_image_id::text as user_image_id
-  FROM user_image
-  JOIN image ON user_image.image_id = image.image_id
-  JOIN user_credentials ON user_image.user_id = user_credentials.user_id
-  JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
-  ORDER BY user_post_timestamp DESC;
+  'user_post' AS type,
+  user_post.user_post_id::text as user_post_id,
+  user_post.user_post,
+  user_post.user_post_timestamp::character varying as user_post_timestamp,
+  user_profile.user_profile_name,
+  null as image_id,
+  null as image_path,
+  null as user_image_id,
+  null as user_poll_question,
+  null as user_poll_option_1,
+  null as user_poll_option_2,
+  null as user_poll_option_3,
+  null as user_poll_id
+FROM user_post
+JOIN user_credentials ON user_post.user_id = user_credentials.user_id
+JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+
+UNION
+
+SELECT
+  'user_image' AS type,
+  null as user_post_id,
+  null as user_post,
+  user_image.user_post_timestamp::character varying as user_post_timestamp,
+  user_profile.user_profile_name,
+  image.image_id::text as image_id,
+  image.image_path,
+  user_image.user_image_id::text as user_image_id,
+  null as user_poll_question,
+  null as user_poll_option_1,
+  null as user_poll_option_2,
+  null as user_poll_option_3,
+  null as user_poll_id
+FROM user_image
+JOIN image ON user_image.image_id = image.image_id
+JOIN user_credentials ON user_image.user_id = user_credentials.user_id
+JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+
+UNION
+
+SELECT
+  'user_poll' AS type,
+  null as user_post_id,
+  null as user_post,
+  user_poll.user_post_timestamp::character varying as user_post_timestamp,
+  user_profile.user_profile_name,
+  null as image_id,
+  null as image_path,
+  null as user_image_id,
+  user_poll.user_poll_question as user_poll_question,
+  user_poll.user_poll_option_1 as user_poll_option_1,
+  user_poll.user_poll_option_2 as user_poll_option_2,
+  user_poll.user_poll_option_3 as user_poll_option_3,
+  user_poll.user_poll_id::text as user_poll_id
+FROM user_poll
+JOIN user_credentials ON user_poll.user_id = user_credentials.user_id
+JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+ORDER BY user_post_timestamp DESC;
     `
     const result = await pool.query(query)
     res.status(200).json(result.rows)
@@ -462,8 +493,14 @@ app.post('/UserPoll', async (req, res) => {
   try {
     const { pollQuestion, pollOptions, user_id } = req.body
     const query =
-      'INSERT INTO user_poll (user_poll_question, user_poll_option_1, user_poll_option_2, user_poll_option_3, user_id, poll_timestamp) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) RETURNING *'
-    const values = [pollQuestion, pollOptions[0], pollOptions[1], pollOptions[2], user_id]
+      'INSERT INTO user_poll (user_poll_question, user_poll_option_1, user_poll_option_2, user_poll_option_3, user_id, user_post_timestamp) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) RETURNING *'
+    const values = [
+      pollQuestion,
+      pollOptions[0],
+      pollOptions[1],
+      pollOptions[2],
+      user_id,
+    ]
     const result = await pool.query(query, values)
 
     res.status(201).json(result.rows[0])
@@ -472,3 +509,51 @@ app.post('/UserPoll', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' })
   }
 })
+
+app.post('/pollResults', async (req, res) => {
+  try {
+    const { pollResult, user_poll_id } = req.body;
+    console.log(req.body);
+
+    // Fetch the existing poll results for the given user_poll_id
+    const fetchQuery = 'SELECT * FROM user_poll_results WHERE user_poll_id = $1';
+    const fetchValues = [user_poll_id];
+    const fetchResult = await pool.query(fetchQuery, fetchValues);
+
+    if (fetchResult.rows.length > 0) {
+      // If a row exists, get the current poll options
+      const currentOptions = fetchResult.rows[0];
+
+      // Update the selected poll option
+      const updateQuery =
+        'UPDATE user_poll_results SET user_poll_result_option_1 = $1, user_poll_result_option_2 = $2, user_poll_result_option_3 = $3 WHERE user_poll_id = $4 RETURNING *';
+      const updateValues = [
+        currentOptions.user_poll_result_option_1 + (pollResult === 'Option 1' ? 1 : 0),
+        currentOptions.user_poll_result_option_2 + (pollResult === 'Option 2' ? 1 : 0),
+        currentOptions.user_poll_result_option_3 + (pollResult === 'Option 3' ? 1 : 0),
+        user_poll_id,
+      ];
+      const updateResult = await pool.query(updateQuery, updateValues);
+
+      console.log(updateResult.rows);
+      res.status(200).json(updateResult.rows[0]);
+    } else {
+      // If a row does not exist, perform an insert with the selected poll option
+      const insertQuery =
+        'INSERT INTO user_poll_results (user_poll_id, user_poll_result_option_1, user_poll_result_option_2, user_poll_result_option_3) VALUES ($1, $2, $3, $4) RETURNING *';
+      const insertValues = [
+        user_poll_id,
+        pollResult === 'Option 1' ? 1 : 0,
+        pollResult === 'Option 2' ? 1 : 0,
+        pollResult === 'Option 3' ? 1 : 0,
+      ];
+      const insertResult = await pool.query(insertQuery, insertValues);
+
+      console.log(insertResult.rows);
+      res.status(201).json(insertResult.rows[0]);
+    }
+  } catch (error) {
+    console.error('Error submitting poll results', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
