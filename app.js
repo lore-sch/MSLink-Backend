@@ -239,64 +239,99 @@ app.get('/LiveFeed', async (req, res) => {
   try {
     const query = `
     SELECT
-  'user_post' AS type,
-  user_post.user_post_id::text as user_post_id,
-  user_post.user_post,
-  user_post.user_post_timestamp::character varying as user_post_timestamp,
-  user_profile.user_profile_name,
-  null as image_id,
-  null as image_path,
-  null as user_image_id,
-  null as user_poll_question,
-  null as user_poll_option_1,
-  null as user_poll_option_2,
-  null as user_poll_option_3,
-  null as user_poll_id
-FROM user_post
-JOIN user_credentials ON user_post.user_id = user_credentials.user_id
-JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+    'user_post' AS type,
+    user_post.user_post_id::text as user_post_id,
+    user_post.user_post,
+    user_post.user_post_timestamp::character varying as user_post_timestamp,
+    user_profile.user_profile_name,
+    null as image_id,
+    null as image_path,
+    null as user_image_id,
+    null as user_poll_question,
+    null as user_poll_option_1,
+    null as user_poll_option_2,
+    null as user_poll_option_3,
+    null as user_poll_id,
+    null as user_poll_result_option_1,
+    null as user_poll_result_option_2,
+    null as user_poll_result_option_3,
+    post_reactions.post_like,
+    post_reactions.post_love,
+    post_reactions.post_laugh,
+    post_reactions.post_sad,
+    post_reactions.post_anger
+  FROM user_post
+  JOIN user_credentials ON user_post.user_id = user_credentials.user_id
+  JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+  LEFT JOIN post_reactions ON user_post.user_post_id = post_reactions.user_post_id
+  
+  UNION
+  
+  SELECT
+    'user_image' AS type,
+    null as user_post_id,
+    null as user_post,
+    user_image.user_post_timestamp::character varying as user_post_timestamp,
+    user_profile.user_profile_name,
+    image.image_id::text as image_id,
+    image.image_path,
+    user_image.user_image_id::text as user_image_id,
+    null as user_poll_question,
+    null as user_poll_option_1,
+    null as user_poll_option_2,
+    null as user_poll_option_3,
+    null as user_poll_id,
+    null as user_poll_result_option_1,
+    null as user_poll_result_option_2,
+    null as user_poll_result_option_3,
+    image_reactions.post_like,
+    image_reactions.post_love,
+    image_reactions.post_laugh,
+    image_reactions.post_sad,
+    image_reactions.post_anger
+  FROM user_image
+  JOIN image ON user_image.image_id = image.image_id
+  JOIN user_credentials ON user_image.user_id = user_credentials.user_id
+  JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+  LEFT JOIN image_reactions ON user_image.user_image_id = image_reactions.user_image_id
+  
+  UNION
+  
+  SELECT
+    'user_poll' AS type,
+    null as user_post_id,
+    null as user_post,
+    user_poll.user_post_timestamp::character varying as user_post_timestamp,
+    user_profile.user_profile_name,
+    null as image_id,
+    null as image_path,
+    null as user_image_id,
+    user_poll.user_poll_question as user_poll_question,
+    user_poll.user_poll_option_1 as user_poll_option_1,
+    user_poll.user_poll_option_2 as user_poll_option_2,
+    user_poll.user_poll_option_3 as user_poll_option_3,
+    user_poll.user_poll_id::text as user_poll_id,
+    COALESCE(pr.user_poll_result_option_1::text, '0') as user_poll_result_option_1,
+    COALESCE(pr.user_poll_result_option_2::text, '0') as user_poll_result_option_2,
+    COALESCE(pr.user_poll_result_option_3::text, '0') as user_poll_result_option_3,
+     null as post_like,
+    null as post_love,
+    null as post_laugh,
+    null as post_sad,
+    null as post_anger
+  FROM user_poll
+  JOIN user_credentials ON user_poll.user_id = user_credentials.user_id
+  JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+  LEFT JOIN (
+    SELECT
+      user_poll_id,
+      user_poll_result_option_1::text,
+      user_poll_result_option_2::text,
+      user_poll_result_option_3::text
+    FROM user_poll_results
+  ) as pr ON user_poll.user_poll_id = pr.user_poll_id
+  ORDER BY user_post_timestamp DESC;
 
-UNION
-
-SELECT
-  'user_image' AS type,
-  null as user_post_id,
-  null as user_post,
-  user_image.user_post_timestamp::character varying as user_post_timestamp,
-  user_profile.user_profile_name,
-  image.image_id::text as image_id,
-  image.image_path,
-  user_image.user_image_id::text as user_image_id,
-  null as user_poll_question,
-  null as user_poll_option_1,
-  null as user_poll_option_2,
-  null as user_poll_option_3,
-  null as user_poll_id
-FROM user_image
-JOIN image ON user_image.image_id = image.image_id
-JOIN user_credentials ON user_image.user_id = user_credentials.user_id
-JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
-
-UNION
-
-SELECT
-  'user_poll' AS type,
-  null as user_post_id,
-  null as user_post,
-  user_poll.user_post_timestamp::character varying as user_post_timestamp,
-  user_profile.user_profile_name,
-  null as image_id,
-  null as image_path,
-  null as user_image_id,
-  user_poll.user_poll_question as user_poll_question,
-  user_poll.user_poll_option_1 as user_poll_option_1,
-  user_poll.user_poll_option_2 as user_poll_option_2,
-  user_poll.user_poll_option_3 as user_poll_option_3,
-  user_poll.user_poll_id::text as user_poll_id
-FROM user_poll
-JOIN user_credentials ON user_poll.user_id = user_credentials.user_id
-JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
-ORDER BY user_post_timestamp DESC;
     `
     const result = await pool.query(query)
     res.status(200).json(result.rows)
@@ -388,8 +423,7 @@ app.get('/ImageResponse', async (req, res) => {
   }
 })
 
-//post emoji reactions to database
-//This query needs looked at to stop duplicate rows
+//post emoji reactions to database for posts
 app.post('/SubmitReaction', async (req, res) => {
   try {
     const { user_post_id, reactionType } = req.body
@@ -473,14 +507,99 @@ app.post('/SubmitReaction', async (req, res) => {
   }
 })
 
+//post emoji reactions to database for images
+app.post('/SubmitImageReaction', async (req, res) => {
+  try {
+    const { user_image_id, reactionType } = req.body
+
+    // Check if a row with the same user_image_id exists in the post_reactions table
+    const queryCheckExisting =
+      'SELECT * FROM image_reactions WHERE user_image_id = $1'
+    const valuesCheckExisting = [user_image_id]
+    const existingReaction = await pool.query(
+      queryCheckExisting,
+      valuesCheckExisting
+    )
+
+    if (existingReaction.rows.length === 0) {
+      // If no existing reaction, insert a new row for the specific post
+      const reactionValues = {
+        like: 0,
+        love: 0,
+        laugh: 0,
+        sad: 0,
+        anger: 0,
+      }
+
+      // Increment the count for the corresponding emoji
+      reactionValues[reactionType] += 1
+
+      const queryInsert =
+        'INSERT INTO image_reactions (user_image_id, post_like, post_love, post_laugh, post_sad, post_anger) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *'
+      const valuesInsert = [
+        user_image_id,
+        reactionValues.like,
+        reactionValues.love,
+        reactionValues.laugh,
+        reactionValues.sad,
+        reactionValues.anger,
+      ]
+
+      const resultInsert = await pool.query(queryInsert, valuesInsert)
+      res.status(201).json(resultInsert.rows[0])
+    } else {
+      // If existing reaction, update the count for the corresponding emoji
+      const reactionValues = {
+        like: existingReaction.rows[0].post_like,
+        love: existingReaction.rows[0].post_love,
+        laugh: existingReaction.rows[0].post_laugh,
+        sad: existingReaction.rows[0].post_sad,
+        anger: existingReaction.rows[0].post_anger,
+      }
+
+      // Increment the count for the corresponding emoji
+      reactionValues[reactionType] += 1
+
+      const queryUpdate =
+        'UPDATE image_reactions SET post_like = $1, post_love = $2, post_laugh = $3, post_sad = $4, post_anger = $5 WHERE user_image_id = $6 RETURNING *'
+      const valuesUpdate = [
+        reactionValues.like,
+        reactionValues.love,
+        reactionValues.laugh,
+        reactionValues.sad,
+        reactionValues.anger,
+        user_image_id,
+      ]
+
+      const resultUpdate = await pool.query(queryUpdate, valuesUpdate)
+      res.status(200).json(resultUpdate.rows[0])
+    }
+
+    // Delete any duplicate rows in post_reactions
+    const queryDeleteDuplicateRows = `
+      DELETE FROM image_reactions
+      WHERE ctid NOT IN (
+        SELECT min(ctid)
+        FROM image_reactions
+        GROUP BY user_image_id, post_like, post_love, post_laugh, post_sad, post_anger
+      )
+    `
+    await pool.query(queryDeleteDuplicateRows)
+  } catch (error) {
+    console.error('Error submitting post', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
 //fetches reactions but not currently working- all 0
 app.get('/PostReactionCount', async (req, res) => {
   const { user_post_id } = req.query
   try {
     const query = `
-    SELECT * FROM post_reactions WHERE user_post_id = $1
+    SELECT * FROM post_reactions
     `
-    const result = await pool.query(query, [user_post_id])
+    const result = await pool.query(query)
+    console.log('Fetched reaction counts:', result.rows)
 
     res.status(200).json(result.rows)
   } catch (error) {
@@ -510,50 +629,95 @@ app.post('/UserPoll', async (req, res) => {
   }
 })
 
+app.get('/pollResults', async (req, res) => {
+  const { user_poll_id } = req.query
+  try {
+    const query = `
+      SELECT user_poll_result_option_1, user_poll_result_option_2, user_poll_result_option_3
+      FROM user_poll_results
+      WHERE user_poll_id = $1
+    `
+    const result = await pool.query(query, [user_poll_id])
+    const pollResults = result.rows
+    console.log(result.rows)
+    res.status(200).json(pollResults)
+  } catch (error) {
+    console.error('Error fetching poll results', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+app.get('/pollResults', async (req, res) => {
+  const { user_poll_id, user_id } = req.query
+  try {
+    const query = `
+      SELECT * FROM user_poll_vote where user_poll_id= $1 AND user_id= $2 RETURNING *
+    `
+    const result = await pool.query(query, [user_poll_id, user_id])
+    const userVoted = result.rows.length > 0
+    res.status(200).json({ userVoted })
+  } catch (error) {
+    console.error('Error fetching poll data', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
 app.post('/pollResults', async (req, res) => {
   try {
-    const { pollResult, user_poll_id } = req.body;
-    console.log(req.body);
+    const { pollResult, user_poll_id, user_id } = req.body
 
     // Fetch the existing poll results for the given user_poll_id
-    const fetchQuery = 'SELECT * FROM user_poll_results WHERE user_poll_id = $1';
-    const fetchValues = [user_poll_id];
-    const fetchResult = await pool.query(fetchQuery, fetchValues);
+    const fetchQuery = 'SELECT * FROM user_poll_results WHERE user_poll_id = $1'
+    const fetchValues = [user_poll_id]
+    const fetchResult = await pool.query(fetchQuery, fetchValues)
 
     if (fetchResult.rows.length > 0) {
       // If a row exists, get the current poll options
-      const currentOptions = fetchResult.rows[0];
+      const currentOptions = fetchResult.rows[0]
 
       // Update the selected poll option
       const updateQuery =
-        'UPDATE user_poll_results SET user_poll_result_option_1 = $1, user_poll_result_option_2 = $2, user_poll_result_option_3 = $3 WHERE user_poll_id = $4 RETURNING *';
+        'UPDATE user_poll_results SET user_poll_result_option_1 = $1, user_poll_result_option_2 = $2, user_poll_result_option_3 = $3 WHERE user_poll_id = $4 RETURNING *'
       const updateValues = [
-        currentOptions.user_poll_result_option_1 + (pollResult === 'Option 1' ? 1 : 0),
-        currentOptions.user_poll_result_option_2 + (pollResult === 'Option 2' ? 1 : 0),
-        currentOptions.user_poll_result_option_3 + (pollResult === 'Option 3' ? 1 : 0),
+        currentOptions.user_poll_result_option_1 +
+          (pollResult === 'Option 1' ? 1 : 0),
+        currentOptions.user_poll_result_option_2 +
+          (pollResult === 'Option 2' ? 1 : 0),
+        currentOptions.user_poll_result_option_3 +
+          (pollResult === 'Option 3' ? 1 : 0),
         user_poll_id,
-      ];
-      const updateResult = await pool.query(updateQuery, updateValues);
+      ]
+      const updateResult = await pool.query(updateQuery, updateValues)
 
-      console.log(updateResult.rows);
-      res.status(200).json(updateResult.rows[0]);
+      // Insert the user_poll_id and user_id into user_poll_vote table
+      const insertVoteQuery =
+        'INSERT INTO user_poll_vote (user_poll_id, user_id) VALUES ($1, $2)'
+      const insertVoteValues = [user_poll_id, user_id]
+      await pool.query(insertVoteQuery, insertVoteValues)
+
+      res.status(200).json(updateResult.rows[0])
     } else {
       // If a row does not exist, perform an insert with the selected poll option
       const insertQuery =
-        'INSERT INTO user_poll_results (user_poll_id, user_poll_result_option_1, user_poll_result_option_2, user_poll_result_option_3) VALUES ($1, $2, $3, $4) RETURNING *';
+        'INSERT INTO user_poll_results (user_poll_id, user_poll_result_option_1, user_poll_result_option_2, user_poll_result_option_3) VALUES ($1, $2, $3, $4) RETURNING *'
       const insertValues = [
         user_poll_id,
         pollResult === 'Option 1' ? 1 : 0,
         pollResult === 'Option 2' ? 1 : 0,
         pollResult === 'Option 3' ? 1 : 0,
-      ];
-      const insertResult = await pool.query(insertQuery, insertValues);
+      ]
+      const insertResult = await pool.query(insertQuery, insertValues)
 
-      console.log(insertResult.rows);
-      res.status(201).json(insertResult.rows[0]);
+      // Insert the user_poll_id and user_id into user_poll_vote table
+      const insertVoteQuery =
+        'INSERT INTO user_poll_vote (user_poll_id, user_id) VALUES ($1, $2)'
+      const insertVoteValues = [user_poll_id, user_id]
+      await pool.query(insertVoteQuery, insertVoteValues)
+
+      res.status(201).json(insertResult.rows[0])
     }
   } catch (error) {
-    console.error('Error submitting poll results', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error submitting poll results', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
-});
+})
