@@ -639,7 +639,6 @@ app.get('/pollResults', async (req, res) => {
     `
     const result = await pool.query(query, [user_poll_id])
     const pollResults = result.rows
-    console.log(result.rows)
     res.status(200).json(pollResults)
   } catch (error) {
     console.error('Error fetching poll results', error)
@@ -718,6 +717,34 @@ app.post('/pollResults', async (req, res) => {
     }
   } catch (error) {
     console.error('Error submitting poll results', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+app.get('/reportCategory', async (req, res) => {
+  try {
+    const query = `
+    SELECT * FROM report_category
+    `
+    const result = await pool.query(query )
+    res.status(200).json(result.rows)
+  } catch (error) {
+    console.error('Error fetching category data', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+app.post('/Report', async (req, res) => {
+  try {
+    const { reportText, user_id, report_category_id } = req.body
+    const query =
+      'INSERT INTO report (report_text, user_id, report_category_id) VALUES ($1, $2, $3) RETURNING *'
+    const values = [reportText, user_id, report_category_id]
+    const result = await pool.query(query, values)
+
+    res.status(201).json(result.rows[0])
+  } catch (error) {
+    console.error('Error submitting report', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
