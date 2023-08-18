@@ -234,7 +234,7 @@ app.post('/LiveFeed', upload.single('image'), async (req, res) => {
   }
 })
 
-//gets posts and images ordered by date/time from database
+//gets posts, polls, images ordered by date/time from database
 app.get('/LiveFeed', async (req, res) => {
   try {
     const query = `
@@ -361,7 +361,6 @@ app.post('/PostResponse', async (req, res) => {
 app.post('/ImageResponse', async (req, res) => {
   try {
     const { userComment, user_image_id, user_id } = req.body
-
     const query =
       'INSERT INTO image_comment (post_comment, post_comment_timestamp, user_image_id, user_id) VALUES ($1, CURRENT_TIMESTAMP, $2, $3) RETURNING *'
     const values = [userComment, user_image_id, user_id]
@@ -396,6 +395,7 @@ app.get('/PostResponse', async (req, res) => {
   }
 })
 
+//Renders comments and user profile name on each image
 app.get('/ImageResponse', async (req, res) => {
   const { user_image_id } = req.query
   console.log('Received user_image_id:', user_image_id)
@@ -591,23 +591,7 @@ app.post('/SubmitImageReaction', async (req, res) => {
   }
 })
 
-//fetches reactions but not currently working- all 0
-app.get('/PostReactionCount', async (req, res) => {
-  const { user_post_id } = req.query
-  try {
-    const query = `
-    SELECT * FROM post_reactions
-    `
-    const result = await pool.query(query)
-    console.log('Fetched reaction counts:', result.rows)
-
-    res.status(200).json(result.rows)
-  } catch (error) {
-    console.error('Error fetching posts', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
-
+//posts new user poll
 app.post('/UserPoll', async (req, res) => {
   try {
     const { pollQuestion, pollOptions, user_id } = req.body
@@ -629,6 +613,7 @@ app.post('/UserPoll', async (req, res) => {
   }
 })
 
+//gets poll data 
 app.get('/pollResults', async (req, res) => {
   const { user_poll_id } = req.query
   try {
@@ -646,6 +631,8 @@ app.get('/pollResults', async (req, res) => {
   }
 })
 
+//set up post route for poll vote and user ensure to ensure 1 vote only
+//needs fixing
 app.get('/pollResults', async (req, res) => {
   const { user_poll_id, user_id } = req.query
   try {
@@ -661,6 +648,7 @@ app.get('/pollResults', async (req, res) => {
   }
 })
 
+//get the poll results
 app.post('/pollResults', async (req, res) => {
   try {
     const { pollResult, user_poll_id, user_id } = req.body
@@ -712,7 +700,6 @@ app.post('/pollResults', async (req, res) => {
         'INSERT INTO user_poll_vote (user_poll_id, user_id) VALUES ($1, $2)'
       const insertVoteValues = [user_poll_id, user_id]
       await pool.query(insertVoteQuery, insertVoteValues)
-
       res.status(201).json(insertResult.rows[0])
     }
   } catch (error) {
@@ -721,6 +708,7 @@ app.post('/pollResults', async (req, res) => {
   }
 })
 
+//route to get report categories for dropdown menu in front end
 app.get('/reportCategory', async (req, res) => {
   try {
     const query = `
@@ -734,6 +722,7 @@ app.get('/reportCategory', async (req, res) => {
   }
 })
 
+//post route for report function
 app.post('/Report', async (req, res) => {
   try {
     const { reportText, user_id, report_category_id } = req.body
@@ -745,6 +734,74 @@ app.post('/Report', async (req, res) => {
     res.status(201).json(result.rows[0])
   } catch (error) {
     console.error('Error submitting report', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+//post route for admin only to discussion board 
+app.post('/DiscussionPost', async (req, res) => {
+  try {
+    const { discussionText} = req.body
+    const query =
+      'INSERT INTO discussion_post (discussion_post) VALUES ($1) RETURNING * '
+    const values = [discussionText]
+    const result = await pool.query(query, values)
+
+    res.status(201).json(result.rows[0])
+  } catch (error) {
+    console.error('Error submitting discussion post', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+//gets all discussion posts 
+app.get('/DiscussionPost', async (req, res) => {
+  try {
+    const query = `
+    SELECT * FROM discussion_post
+    `
+    const result = await pool.query(query)
+    res.status(200).json(result.rows)
+  } catch (error) {
+    console.error('Error fetching discussion posts', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+//Renders comments and user profile name on each discussion post
+app.get('/DiscussionComments', async (req, res) => {
+  const { discussion_post_id } = req.query
+  try {
+    const query = `
+    SELECT discussion_comment.*, user_profile.user_profile_name
+    FROM discussion_comment
+    JOIN user_credentials ON user_credentials.user_id = discussion_comment.user_id
+    JOIN discussion_post ON discussion_post.discussion_post_id = discussion_comment.discussion_post_id
+    JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+    WHERE discussion_post.discussion_post_id = $1
+    ORDER BY discussion_post_id;
+    `
+
+    const result = await pool.query(query, [discussion_post_id])
+    res.status(200).json(result.rows)
+  } catch (error) {
+    console.error('Error fetching comments', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+//route to post comments to individual discussion posts
+app.post('/DiscussionComments', async (req, res) => {
+  try {
+    const { userComment, discussion_post_id, user_id } = req.body
+    const query =
+      'INSERT INTO discussion_comment (discussion_comment, discussion_post_id, user_id, post_comment_timestamp) VALUES ($1, $2, $3, CURRENT_TIMESTAMP) RETURNING *'
+    const values = [userComment, discussion_post_id, user_id]
+    const result = await pool.query(query, values)
+
+    res.status(201).json(result.rows[0])
+  } catch (error) {
+    console.error('Error submitting post', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
