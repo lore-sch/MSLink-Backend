@@ -134,6 +134,33 @@ app.get('/ProfileEditPage', async (req, res) => {
   }
 })
 
+//route to get profile information when username clicked on
+// Route to get profile information and image URL
+app.get('/ProfileEditPageByUsername', async (req, res) => {
+  try {
+    const { user_profile_id } = req.query
+    const query =
+      'SELECT user_profile.*, image.image_path ' +
+      'FROM user_profile ' +
+      'LEFT JOIN image ON user_profile.image_id = image.image_id ' +
+      'WHERE user_profile.user_profile_id = $1'
+
+    const result = await pool.query(query, [user_profile_id])
+
+    if (result.rows.length > 0) {
+      console.log('correct route', result.rows)
+      const userProfileWithImage = result.rows[0]
+      res.status(200).json(userProfileWithImage)
+    } else {
+      console.log('User profile not found for user_profile_id:', user_profile_id)
+      res.status(404).json({ error: 'User profile not found' })
+    }
+  } catch (error) {
+    console.error('Error getting profile', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
 //post route to edit profile page
 //Tries to update existing profile, checks if rows changed, then inserts if not
 app.post('/ProfileEditPage', upload.single('image'), async (req, res) => {
@@ -234,6 +261,8 @@ app.post('/LiveFeed', upload.single('image'), async (req, res) => {
   }
 })
 
+
+
 //gets posts, polls, images ordered by date/time from database
 app.get('/LiveFeed', async (req, res) => {
   try {
@@ -243,6 +272,7 @@ app.get('/LiveFeed', async (req, res) => {
     user_post.user_post_id::text as user_post_id,
     user_post.user_post,
     user_post.user_post_timestamp::character varying as user_post_timestamp,
+    user_profile.user_profile_id,
     user_profile.user_profile_name,
     null as image_id,
     null as image_path,
@@ -272,6 +302,7 @@ app.get('/LiveFeed', async (req, res) => {
     null as user_post_id,
     null as user_post,
     user_image.user_post_timestamp::character varying as user_post_timestamp,
+    user_profile.user_profile_id,
     user_profile.user_profile_name,
     image.image_id::text as image_id,
     image.image_path,
@@ -302,6 +333,7 @@ app.get('/LiveFeed', async (req, res) => {
     null as user_post_id,
     null as user_post,
     user_poll.user_post_timestamp::character varying as user_post_timestamp,
+    user_profile.user_profile_id,
     user_profile.user_profile_name,
     null as image_id,
     null as image_path,
@@ -805,3 +837,21 @@ app.post('/DiscussionComments', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' })
   }
 })
+
+//gets all discussion posts with valid search parameter
+app.get('/DiscussionPostSearch', async (req, res) => {
+  try {
+    const searchTerm = req.query.searchTerm
+    const query = `
+      SELECT * FROM discussion_post
+      WHERE discussion_post ILIKE $1
+    `
+    const result = await pool.query(query, [`%${searchTerm}%`]); 
+    console.log(result.rows)
+    res.status(200).json(result.rows)
+  } catch (error) {
+    console.error('Error fetching discussion posts', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
