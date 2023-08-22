@@ -855,3 +855,24 @@ app.get('/DiscussionPostSearch', async (req, res) => {
   }
 })
 
+//gets all discussion posts with valid search parameter
+app.get('/LiveFeedSearch', async (req, res) => {
+  try {
+    const searchTerm = req.query.searchTerm
+    const query = `
+    SELECT *,
+    'user_post' AS type
+    FROM user_post 
+    WHERE user_post ILIKE $1;
+
+
+    `
+    const result = await pool.query(query, [`%${searchTerm}%`]); 
+    console.log(result.rows)
+    res.status(200).json(result.rows)
+  } catch (error) {
+    console.error('Error fetching matching posts', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
