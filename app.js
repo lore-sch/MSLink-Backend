@@ -108,6 +108,22 @@ app.post('/SignUp', async (req, res) => {
   }
 })
 
+//route to get user credential details for comparison at sign up
+app.get('/SignUp', async (req, res) => {
+  try {
+    const { user_email } = req.query
+    const query =
+      'SELECT user_email FROM user_credentials WHERE user_email = $1'
+    const values = [user_email]
+    const result = await pool.query(query, values)
+
+    res.status(201).json(result.rows)
+  } catch (error) {
+    console.error('Error retrieving user credentials', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
 //route to get profile information
 // Route to get profile information and image URL
 app.get('/ProfileEditPage', async (req, res) => {
