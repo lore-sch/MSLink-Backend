@@ -140,9 +140,10 @@ app.get('/ProfileEditPage', async (req, res) => {
     if (result.rows.length > 0) {
       const userProfileWithImage = result.rows[0]
       res.status(200).json(userProfileWithImage)
+      console.log(result.rows)
     } else {
-      console.log('User profile not found for user_id:', user_id)
-      res.status(404).json({ error: 'User profile not found' })
+      console.log('Profile not set up yet for:', user_id)
+      res.status(200).json({})
     }
   } catch (error) {
     console.error('Error getting profile', error)
