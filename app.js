@@ -129,6 +129,7 @@ app.get('/SignUp', async (req, res) => {
 app.get('/ProfileEditPage', async (req, res) => {
   try {
     const { user_id } = req.query
+
     const query =
       'SELECT user_profile.*, image.image_path ' +
       'FROM user_profile ' +
@@ -854,6 +855,25 @@ app.post('/DiscussionComments', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' })
   }
 })
+
+//delete discussion comment
+app.post('/DeleteDiscussionComment', async (req, res) => {
+  try {
+    const { discussion_comment_id } = req.body;
+    const { user_id } = req.body;
+    console.log(user_id, discussion_comment_id)
+
+    // Delete the comment
+    const deleteQuery = 'DELETE FROM discussion_comment WHERE discussion_comment_id = $1 AND user_id = $2 RETURNING *';
+    const deleteResult = await pool.query(deleteQuery, [discussion_comment_id, user_id]);
+
+    res.status(200).json(deleteResult.rows[0]);
+  } catch (error) {
+    console.error('Error deleting comment', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 
 //gets all discussion posts with valid search parameter
 app.get('/DiscussionPostSearch', async (req, res) => {
