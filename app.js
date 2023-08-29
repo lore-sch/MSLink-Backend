@@ -279,6 +279,94 @@ app.post('/LiveFeed', upload.single('image'), async (req, res) => {
   }
 })
 
+// Delete images posted by a user and corresponding comments and reactions
+app.post('/DeleteUserImage', async (req, res) => {
+  const { user_image_id, user_id } = req.body;
+  console.log(user_image_id, user_id);
+  const client = await pool.connect();
+
+  try {
+    // Begin a transaction
+    await client.query('BEGIN');
+
+    // Delete comments associated with the image
+    const deleteImageCommentsQuery =
+      'DELETE FROM image_comment WHERE user_image_id = $1';
+    await client.query(deleteImageCommentsQuery, [user_image_id]);
+
+    // Delete reactions associated with the image
+    const deleteImageReactionsQuery =
+      'DELETE FROM image_reactions WHERE user_image_id = $1';
+    await client.query(deleteImageReactionsQuery, [user_image_id]);
+
+    // Delete user image data from user_image table
+    const deleteUserImageQuery =
+      'DELETE FROM user_image WHERE user_id = $1 AND user_image_id = $2 RETURNING *';
+    const deleteUserImageValues = [user_id, user_image_id];
+    const deleteUserImageResult = await client.query(deleteUserImageQuery, deleteUserImageValues);
+
+    // Delete image data from image table if no other user references it
+    const deleteImageQuery =
+      'DELETE FROM image WHERE image_id = $1 AND NOT EXISTS (SELECT 1 FROM user_image WHERE image_id = image.image_id)';
+    await client.query(deleteImageQuery, [user_image_id]);
+
+    // Commit the transaction
+    await client.query('COMMIT');
+
+    res.status(200).json({ message: 'Image, associated comments, and reactions deleted successfully' });
+  } catch (error) {
+    // If any error occurs, rollback the transaction
+    await client.query('ROLLBACK');
+    console.error('Error deleting image, comments, and reactions', error);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    // Release the client back to the pool
+    client.release();
+  }
+});
+
+//delete posts from live feed and associated comments and reactions
+app.post('/DeleteLiveFeedPost', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { user_post_id, user_id } = req.body;
+
+    // Begin a transaction
+    await client.query('BEGIN');
+
+    // Delete reactions associated with the post
+    const deleteReactionsQuery =
+      'DELETE FROM post_reactions WHERE user_post_id = $1';
+    await client.query(deleteReactionsQuery, [user_post_id]);
+
+    // Delete comments associated with the post
+    const deleteCommentsQuery =
+      'DELETE FROM post_comment WHERE user_post_id = $1';
+    await client.query(deleteCommentsQuery, [user_post_id]);
+
+    // Delete the post itself
+    const deletePostQuery =
+      'DELETE FROM user_post WHERE user_post_id = $1 AND user_id = $2 RETURNING *';
+    const deletePostValues = [user_post_id, user_id];
+    const deletePostResult = await client.query(deletePostQuery, deletePostValues);
+
+    // Commit the transaction
+    await client.query('COMMIT');
+
+    res.status(200).json({ message: 'Post, associated comments, and reactions deleted successfully' });
+  } catch (error) {
+    // If any error occurs, rollback the transaction
+    await client.query('ROLLBACK');
+    console.error('Error deleting post, comments, and reactions', error);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    // Release the client back to the pool
+    client.release();
+  }
+});
+
+
+
 
 
 //gets posts, polls, images ordered by date/time from database
@@ -292,6 +380,7 @@ app.get('/LiveFeed', async (req, res) => {
     user_post.user_post_timestamp::character varying as user_post_timestamp,
     user_profile.user_profile_id,
     user_profile.user_profile_name,
+    user_credentials.user_id,
     null as image_id,
     null as image_path,
     null as user_image_id,
@@ -322,6 +411,7 @@ app.get('/LiveFeed', async (req, res) => {
     user_image.user_post_timestamp::character varying as user_post_timestamp,
     user_profile.user_profile_id,
     user_profile.user_profile_name,
+    user_credentials.user_id,
     image.image_id::text as image_id,
     image.image_path,
     user_image.user_image_id::text as user_image_id,
@@ -353,6 +443,7 @@ app.get('/LiveFeed', async (req, res) => {
     user_poll.user_post_timestamp::character varying as user_post_timestamp,
     user_profile.user_profile_id,
     user_profile.user_profile_name,
+    user_credentials.user_id,
     null as image_id,
     null as image_path,
     null as user_image_id,
@@ -407,6 +498,24 @@ app.post('/PostResponse', async (req, res) => {
   }
 })
 
+//delete discussion comment
+app.post('/DeletePostComment', async (req, res) => {
+  try {
+    const { post_comment_id, user_id } = req.body;
+    console.log(post_comment_id, user_id)
+    // Delete the comment
+    const deleteQuery = 'DELETE FROM post_comment WHERE post_comment_id = $1 AND user_id = $2 RETURNING *';
+    const deleteResult = await pool.query(deleteQuery, [post_comment_id, user_id]);
+
+    res.status(200).json(deleteResult.rows[0]);
+  } catch (error) {
+    console.error('Error deleting comment', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+
 //post comment to images
 app.post('/ImageResponse', async (req, res) => {
   try {
@@ -422,6 +531,21 @@ app.post('/ImageResponse', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' })
   }
 })
+
+//delete image comment
+app.post('/DeleteImageComment', async (req, res) => {
+  try {
+    const { image_comment_id, user_id } = req.body;
+    // Delete the comment
+    const deleteQuery = 'DELETE FROM image_comment WHERE image_comment_id = $1 AND user_id = $2 RETURNING *';
+    const deleteResult = await pool.query(deleteQuery, [image_comment_id, user_id]);
+
+    res.status(200).json(deleteResult.rows[0]);
+  } catch (error) {
+    console.error('Error deleting comment', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 //Renders comments and user profile name on each post
 app.get('/PostResponse', async (req, res) => {
