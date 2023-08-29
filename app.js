@@ -141,7 +141,6 @@ app.get('/ProfileEditPage', async (req, res) => {
     if (result.rows.length > 0) {
       const userProfileWithImage = result.rows[0]
       res.status(200).json(userProfileWithImage)
-      console.log(result.rows)
     } else {
       console.log('Profile not set up yet for:', user_id)
       res.status(200).json({})
@@ -166,7 +165,6 @@ app.get('/ProfileEditPageByUsername', async (req, res) => {
     const result = await pool.query(query, [user_profile_id])
 
     if (result.rows.length > 0) {
-      console.log('correct route', result.rows)
       const userProfileWithImage = result.rows[0]
       res.status(200).json(userProfileWithImage)
     } else {
@@ -242,8 +240,7 @@ app.post('/ProfileEditPage', upload.single('image'), async (req, res) => {
   }
 })
 
-//route for user to post new status to live feed
-// Merge both post routes into a single route
+//route for user to post new status and image to live feed
 app.post('/LiveFeed', upload.single('image'), async (req, res) => {
   try {
     const { userPost, user_id } = req.body
@@ -282,45 +279,37 @@ app.post('/LiveFeed', upload.single('image'), async (req, res) => {
 // Delete images posted by a user and corresponding comments and reactions
 app.post('/DeleteUserImage', async (req, res) => {
   const { user_image_id, user_id } = req.body;
-  console.log(user_image_id, user_id);
   const client = await pool.connect();
-
   try {
-    // Begin a transaction
     await client.query('BEGIN');
-
     // Delete comments associated with the image
     const deleteImageCommentsQuery =
       'DELETE FROM image_comment WHERE user_image_id = $1';
     await client.query(deleteImageCommentsQuery, [user_image_id]);
-
-    // Delete reactions associated with the image
+    // Delete reactions on image
     const deleteImageReactionsQuery =
       'DELETE FROM image_reactions WHERE user_image_id = $1';
     await client.query(deleteImageReactionsQuery, [user_image_id]);
 
-    // Delete user image data from user_image table
+    // Delete user image row from user_image
     const deleteUserImageQuery =
       'DELETE FROM user_image WHERE user_id = $1 AND user_image_id = $2 RETURNING *';
     const deleteUserImageValues = [user_id, user_image_id];
     const deleteUserImageResult = await client.query(deleteUserImageQuery, deleteUserImageValues);
 
-    // Delete image data from image table if no other user references it
+    // Delete image data from image table
     const deleteImageQuery =
       'DELETE FROM image WHERE image_id = $1 AND NOT EXISTS (SELECT 1 FROM user_image WHERE image_id = image.image_id)';
     await client.query(deleteImageQuery, [user_image_id]);
 
-    // Commit the transaction
     await client.query('COMMIT');
 
     res.status(200).json({ message: 'Image, associated comments, and reactions deleted successfully' });
   } catch (error) {
-    // If any error occurs, rollback the transaction
     await client.query('ROLLBACK');
     console.error('Error deleting image, comments, and reactions', error);
     res.status(500).json({ error: 'Internal server error' });
   } finally {
-    // Release the client back to the pool
     client.release();
   }
 });
@@ -502,8 +491,6 @@ app.post('/PostResponse', async (req, res) => {
 app.post('/DeletePostComment', async (req, res) => {
   try {
     const { post_comment_id, user_id } = req.body;
-    console.log(post_comment_id, user_id)
-    // Delete the comment
     const deleteQuery = 'DELETE FROM post_comment WHERE post_comment_id = $1 AND user_id = $2 RETURNING *';
     const deleteResult = await pool.query(deleteQuery, [post_comment_id, user_id]);
 
@@ -536,7 +523,6 @@ app.post('/ImageResponse', async (req, res) => {
 app.post('/DeleteImageComment', async (req, res) => {
   try {
     const { image_comment_id, user_id } = req.body;
-    // Delete the comment
     const deleteQuery = 'DELETE FROM image_comment WHERE image_comment_id = $1 AND user_id = $2 RETURNING *';
     const deleteResult = await pool.query(deleteQuery, [image_comment_id, user_id]);
 
@@ -552,15 +538,18 @@ app.get('/PostResponse', async (req, res) => {
   const { user_post_id } = req.query
   try {
     const query = `
-    SELECT post_comment.*, user_profile.user_profile_name
-    FROM post_comment
-    JOIN user_credentials ON user_credentials.user_id = post_comment.user_id
-    JOIN user_post ON user_post.user_post_id = post_comment.user_post_id
-    JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
-    WHERE user_post.user_post_id = $1
-    ORDER BY post_comment_timestamp DESC;
+    SELECT
+    post_comment.*,
+    user_profile.user_profile_name,
+    user_profile.user_profile_id
+  FROM post_comment
+  JOIN user_credentials ON user_credentials.user_id = post_comment.user_id
+  JOIN user_post ON user_post.user_post_id = post_comment.user_post_id
+  JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+  WHERE user_post.user_post_id = $1
+  ORDER BY post_comment_timestamp DESC;
+  
     `
-
     const result = await pool.query(query, [user_post_id])
     res.status(200).json(result.rows)
   } catch (error) {
@@ -572,11 +561,11 @@ app.get('/PostResponse', async (req, res) => {
 //Renders comments and user profile name on each image
 app.get('/ImageResponse', async (req, res) => {
   const { user_image_id } = req.query
-  console.log('Received user_image_id:', user_image_id)
   try {
     const query = `
     SELECT
     image_comment.*,
+    user_profile.user_profile_id,
     user_profile.user_profile_name,
     image.image_path
   FROM image_comment
@@ -586,10 +575,11 @@ app.get('/ImageResponse', async (req, res) => {
   JOIN image ON user_image.image_id = image.image_id
   WHERE image_comment.user_image_id = $1
   ORDER BY post_comment_timestamp DESC;
+
     `
 
     const result = await pool.query(query, [user_image_id])
-    console.log('Fetched comments:', result.rows)
+  
     res.status(200).json(result.rows)
   } catch (error) {
     console.error('Error fetching image comments:', error)
@@ -985,7 +975,6 @@ app.post('/DeleteDiscussionComment', async (req, res) => {
   try {
     const { discussion_comment_id } = req.body;
     const { user_id } = req.body;
-    console.log(user_id, discussion_comment_id)
 
     // Delete the comment
     const deleteQuery = 'DELETE FROM discussion_comment WHERE discussion_comment_id = $1 AND user_id = $2 RETURNING *';
@@ -1008,7 +997,6 @@ app.get('/DiscussionPostSearch', async (req, res) => {
       WHERE discussion_post ILIKE $1
     `
     const result = await pool.query(query, [`%${searchTerm}%`]); 
-    console.log(result.rows)
     res.status(200).json(result.rows)
   } catch (error) {
     console.error('Error fetching discussion posts', error)
@@ -1025,11 +1013,8 @@ app.get('/LiveFeedSearch', async (req, res) => {
     'user_post' AS type
     FROM user_post 
     WHERE user_post ILIKE $1;
-
-
     `
     const result = await pool.query(query, [`%${searchTerm}%`]); 
-    console.log(result.rows)
     res.status(200).json(result.rows)
   } catch (error) {
     console.error('Error fetching matching posts', error)
