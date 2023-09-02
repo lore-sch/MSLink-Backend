@@ -168,7 +168,10 @@ app.get('/ProfileEditPageByUsername', async (req, res) => {
       const userProfileWithImage = result.rows[0]
       res.status(200).json(userProfileWithImage)
     } else {
-      console.log('User profile not found for user_profile_id:', user_profile_id)
+      console.log(
+        'User profile not found for user_profile_id:',
+        user_profile_id
+      )
       res.status(404).json({ error: 'User profile not found' })
     }
   } catch (error) {
@@ -267,7 +270,7 @@ app.post('/LiveFeed', upload.single('image'), async (req, res) => {
         'INSERT INTO user_post (user_post, user_post_timestamp, user_id) VALUES ($1, CURRENT_TIMESTAMP, $2) RETURNING *'
       const values = [userPost, user_id]
       const result = await pool.query(query, values)
-
+      console.log(result.rows)
       res.status(201).json(result.rows[0])
     }
   } catch (error) {
@@ -278,85 +281,97 @@ app.post('/LiveFeed', upload.single('image'), async (req, res) => {
 
 // Delete images posted by a user and corresponding comments and reactions
 app.post('/DeleteUserImage', async (req, res) => {
-  const { user_image_id, user_id } = req.body;
-  const client = await pool.connect();
+  const { user_image_id, user_id } = req.body
+  const client = await pool.connect()
   try {
-    await client.query('BEGIN');
+    await client.query('BEGIN')
     // Delete comments associated with the image
     const deleteImageCommentsQuery =
-      'DELETE FROM image_comment WHERE user_image_id = $1';
-    await client.query(deleteImageCommentsQuery, [user_image_id]);
+      'DELETE FROM image_comment WHERE user_image_id = $1'
+    await client.query(deleteImageCommentsQuery, [user_image_id])
     // Delete reactions on image
     const deleteImageReactionsQuery =
-      'DELETE FROM image_reactions WHERE user_image_id = $1';
-    await client.query(deleteImageReactionsQuery, [user_image_id]);
+      'DELETE FROM image_reactions WHERE user_image_id = $1'
+    await client.query(deleteImageReactionsQuery, [user_image_id])
 
     // Delete user image row from user_image
     const deleteUserImageQuery =
-      'DELETE FROM user_image WHERE user_id = $1 AND user_image_id = $2 RETURNING *';
-    const deleteUserImageValues = [user_id, user_image_id];
-    const deleteUserImageResult = await client.query(deleteUserImageQuery, deleteUserImageValues);
+      'DELETE FROM user_image WHERE user_id = $1 AND user_image_id = $2 RETURNING *'
+    const deleteUserImageValues = [user_id, user_image_id]
+    const deleteUserImageResult = await client.query(
+      deleteUserImageQuery,
+      deleteUserImageValues
+    )
 
     // Delete image data from image table
     const deleteImageQuery =
-      'DELETE FROM image WHERE image_id = $1 AND NOT EXISTS (SELECT 1 FROM user_image WHERE image_id = image.image_id)';
-    await client.query(deleteImageQuery, [user_image_id]);
+      'DELETE FROM image WHERE image_id = $1 AND NOT EXISTS (SELECT 1 FROM user_image WHERE image_id = image.image_id)'
+    await client.query(deleteImageQuery, [user_image_id])
 
-    await client.query('COMMIT');
+    await client.query('COMMIT')
 
-    res.status(200).json({ message: 'Image, associated comments, and reactions deleted successfully' });
+    res
+      .status(200)
+      .json({
+        message:
+          'Image, associated comments, and reactions deleted successfully',
+      })
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error deleting image, comments, and reactions', error);
-    res.status(500).json({ error: 'Internal server error' });
+    await client.query('ROLLBACK')
+    console.error('Error deleting image, comments, and reactions', error)
+    res.status(500).json({ error: 'Internal server error' })
   } finally {
-    client.release();
+    client.release()
   }
-});
+})
 
 //delete posts from live feed and associated comments and reactions
 app.post('/DeleteLiveFeedPost', async (req, res) => {
-  const client = await pool.connect();
+  const client = await pool.connect()
   try {
-    const { user_post_id, user_id } = req.body;
+    const { user_post_id, user_id } = req.body
 
     // Begin a transaction
-    await client.query('BEGIN');
+    await client.query('BEGIN')
 
     // Delete reactions associated with the post
     const deleteReactionsQuery =
-      'DELETE FROM post_reactions WHERE user_post_id = $1';
-    await client.query(deleteReactionsQuery, [user_post_id]);
+      'DELETE FROM post_reactions WHERE user_post_id = $1'
+    await client.query(deleteReactionsQuery, [user_post_id])
 
     // Delete comments associated with the post
     const deleteCommentsQuery =
-      'DELETE FROM post_comment WHERE user_post_id = $1';
-    await client.query(deleteCommentsQuery, [user_post_id]);
+      'DELETE FROM post_comment WHERE user_post_id = $1'
+    await client.query(deleteCommentsQuery, [user_post_id])
 
     // Delete the post itself
     const deletePostQuery =
-      'DELETE FROM user_post WHERE user_post_id = $1 AND user_id = $2 RETURNING *';
-    const deletePostValues = [user_post_id, user_id];
-    const deletePostResult = await client.query(deletePostQuery, deletePostValues);
+      'DELETE FROM user_post WHERE user_post_id = $1 AND user_id = $2 RETURNING *'
+    const deletePostValues = [user_post_id, user_id]
+    const deletePostResult = await client.query(
+      deletePostQuery,
+      deletePostValues
+    )
 
     // Commit the transaction
-    await client.query('COMMIT');
+    await client.query('COMMIT')
 
-    res.status(200).json({ message: 'Post, associated comments, and reactions deleted successfully' });
+    res
+      .status(200)
+      .json({
+        message:
+          'Post, associated comments, and reactions deleted successfully',
+      })
   } catch (error) {
     // If any error occurs, rollback the transaction
-    await client.query('ROLLBACK');
-    console.error('Error deleting post, comments, and reactions', error);
-    res.status(500).json({ error: 'Internal server error' });
+    await client.query('ROLLBACK')
+    console.error('Error deleting post, comments, and reactions', error)
+    res.status(500).json({ error: 'Internal server error' })
   } finally {
     // Release the client back to the pool
-    client.release();
+    client.release()
   }
-});
-
-
-
-
+})
 
 //gets posts, polls, images ordered by date/time from database
 app.get('/LiveFeed', async (req, res) => {
@@ -388,7 +403,7 @@ app.get('/LiveFeed', async (req, res) => {
     post_reactions.post_anger
   FROM user_post
   JOIN user_credentials ON user_post.user_id = user_credentials.user_id
-  JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+  JOIN user_profile ON user_credentials.user_id = user_profile.user_id
   LEFT JOIN post_reactions ON user_post.user_post_id = post_reactions.user_post_id
   
   UNION
@@ -420,7 +435,7 @@ app.get('/LiveFeed', async (req, res) => {
   FROM user_image
   JOIN image ON user_image.image_id = image.image_id
   JOIN user_credentials ON user_image.user_id = user_credentials.user_id
-  JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+  JOIN user_profile ON user_credentials.user_id = user_profile.user_id
   LEFT JOIN image_reactions ON user_image.user_image_id = image_reactions.user_image_id
   
   UNION
@@ -451,7 +466,7 @@ app.get('/LiveFeed', async (req, res) => {
     null as post_anger
   FROM user_poll
   JOIN user_credentials ON user_poll.user_id = user_credentials.user_id
-  JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+  JOIN user_profile ON user_credentials.user_id = user_profile.user_id
   LEFT JOIN (
     SELECT
       user_poll_id,
@@ -490,18 +505,20 @@ app.post('/PostResponse', async (req, res) => {
 //delete discussion comment
 app.post('/DeletePostComment', async (req, res) => {
   try {
-    const { post_comment_id, user_id } = req.body;
-    const deleteQuery = 'DELETE FROM post_comment WHERE post_comment_id = $1 AND user_id = $2 RETURNING *';
-    const deleteResult = await pool.query(deleteQuery, [post_comment_id, user_id]);
+    const { post_comment_id, user_id } = req.body
+    const deleteQuery =
+      'DELETE FROM post_comment WHERE post_comment_id = $1 AND user_id = $2 RETURNING *'
+    const deleteResult = await pool.query(deleteQuery, [
+      post_comment_id,
+      user_id,
+    ])
 
-    res.status(200).json(deleteResult.rows[0]);
+    res.status(200).json(deleteResult.rows[0])
   } catch (error) {
-    console.error('Error deleting comment', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error deleting comment', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
-});
-
-
+})
 
 //post comment to images
 app.post('/ImageResponse', async (req, res) => {
@@ -522,16 +539,20 @@ app.post('/ImageResponse', async (req, res) => {
 //delete image comment
 app.post('/DeleteImageComment', async (req, res) => {
   try {
-    const { image_comment_id, user_id } = req.body;
-    const deleteQuery = 'DELETE FROM image_comment WHERE image_comment_id = $1 AND user_id = $2 RETURNING *';
-    const deleteResult = await pool.query(deleteQuery, [image_comment_id, user_id]);
+    const { image_comment_id, user_id } = req.body
+    const deleteQuery =
+      'DELETE FROM image_comment WHERE image_comment_id = $1 AND user_id = $2 RETURNING *'
+    const deleteResult = await pool.query(deleteQuery, [
+      image_comment_id,
+      user_id,
+    ])
 
-    res.status(200).json(deleteResult.rows[0]);
+    res.status(200).json(deleteResult.rows[0])
   } catch (error) {
-    console.error('Error deleting comment', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error deleting comment', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
-});
+})
 
 //Renders comments and user profile name on each post
 app.get('/PostResponse', async (req, res) => {
@@ -545,13 +566,13 @@ app.get('/PostResponse', async (req, res) => {
   FROM post_comment
   JOIN user_credentials ON user_credentials.user_id = post_comment.user_id
   JOIN user_post ON user_post.user_post_id = post_comment.user_post_id
-  JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+  JOIN user_profile ON user_credentials.user_id = user_profile.user_id
   WHERE user_post.user_post_id = $1
-  ORDER BY post_comment_timestamp DESC;
-  
+  ORDER BY post_comment_timestamp ASC;
     `
     const result = await pool.query(query, [user_post_id])
     res.status(200).json(result.rows)
+    console.log(result.rows)
   } catch (error) {
     console.error('Error fetching comments', error)
     res.status(500).json({ error: 'Internal server error' })
@@ -570,7 +591,7 @@ app.get('/ImageResponse', async (req, res) => {
     image.image_path
   FROM image_comment
   JOIN user_credentials ON user_credentials.user_id = image_comment.user_id
-  JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+  JOIN user_profile ON user_credentials.user_id = user_profile.user_id
   JOIN user_image ON user_image.user_image_id = image_comment.user_image_id
   JOIN image ON user_image.image_id = image.image_id
   WHERE image_comment.user_image_id = $1
@@ -579,7 +600,7 @@ app.get('/ImageResponse', async (req, res) => {
     `
 
     const result = await pool.query(query, [user_image_id])
-  
+
     res.status(200).json(result.rows)
   } catch (error) {
     console.error('Error fetching image comments:', error)
@@ -777,7 +798,7 @@ app.post('/UserPoll', async (req, res) => {
   }
 })
 
-//gets poll data 
+//gets poll data
 app.get('/pollResults', async (req, res) => {
   const { user_poll_id } = req.query
   try {
@@ -878,7 +899,7 @@ app.get('/reportCategory', async (req, res) => {
     const query = `
     SELECT * FROM report_category
     `
-    const result = await pool.query(query )
+    const result = await pool.query(query)
     res.status(200).json(result.rows)
   } catch (error) {
     console.error('Error fetching category data', error)
@@ -902,10 +923,10 @@ app.post('/Report', async (req, res) => {
   }
 })
 
-//post route for admin only to discussion board 
+//post route for admin only to discussion board
 app.post('/DiscussionPost', async (req, res) => {
   try {
-    const { discussionText} = req.body
+    const { discussionText } = req.body
     const query =
       'INSERT INTO discussion_post (discussion_post) VALUES ($1) RETURNING * '
     const values = [discussionText]
@@ -918,7 +939,7 @@ app.post('/DiscussionPost', async (req, res) => {
   }
 })
 
-//gets all discussion posts 
+//gets all discussion posts
 app.get('/DiscussionPost', async (req, res) => {
   try {
     const query = `
@@ -941,7 +962,7 @@ app.get('/DiscussionComments', async (req, res) => {
     FROM discussion_comment
     JOIN user_credentials ON user_credentials.user_id = discussion_comment.user_id
     JOIN discussion_post ON discussion_post.discussion_post_id = discussion_comment.discussion_post_id
-    JOIN user_profile ON user_credentials.user_id = user_profile.user_profile_id
+    JOIN user_profile ON user_credentials.user_id = user_profile.user_id
     WHERE discussion_post.discussion_post_id = $1
     ORDER BY discussion_post_id;
     `
@@ -973,20 +994,23 @@ app.post('/DiscussionComments', async (req, res) => {
 //delete discussion comment
 app.post('/DeleteDiscussionComment', async (req, res) => {
   try {
-    const { discussion_comment_id } = req.body;
-    const { user_id } = req.body;
+    const { discussion_comment_id } = req.body
+    const { user_id } = req.body
 
     // Delete the comment
-    const deleteQuery = 'DELETE FROM discussion_comment WHERE discussion_comment_id = $1 AND user_id = $2 RETURNING *';
-    const deleteResult = await pool.query(deleteQuery, [discussion_comment_id, user_id]);
+    const deleteQuery =
+      'DELETE FROM discussion_comment WHERE discussion_comment_id = $1 AND user_id = $2 RETURNING *'
+    const deleteResult = await pool.query(deleteQuery, [
+      discussion_comment_id,
+      user_id,
+    ])
 
-    res.status(200).json(deleteResult.rows[0]);
+    res.status(200).json(deleteResult.rows[0])
   } catch (error) {
-    console.error('Error deleting comment', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error deleting comment', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
-});
-
+})
 
 //gets all discussion posts with valid search parameter
 app.get('/DiscussionPostSearch', async (req, res) => {
@@ -996,7 +1020,7 @@ app.get('/DiscussionPostSearch', async (req, res) => {
       SELECT * FROM discussion_post
       WHERE discussion_post ILIKE $1
     `
-    const result = await pool.query(query, [`%${searchTerm}%`]); 
+    const result = await pool.query(query, [`%${searchTerm}%`])
     res.status(200).json(result.rows)
   } catch (error) {
     console.error('Error fetching discussion posts', error)
@@ -1014,11 +1038,10 @@ app.get('/LiveFeedSearch', async (req, res) => {
     FROM user_post 
     WHERE user_post ILIKE $1;
     `
-    const result = await pool.query(query, [`%${searchTerm}%`]); 
+    const result = await pool.query(query, [`%${searchTerm}%`])
     res.status(200).json(result.rows)
   } catch (error) {
     console.error('Error fetching matching posts', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
-
