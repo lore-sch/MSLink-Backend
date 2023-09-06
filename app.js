@@ -270,7 +270,6 @@ app.post('/LiveFeed', upload.single('image'), async (req, res) => {
         'INSERT INTO user_post (user_post, user_post_timestamp, user_id) VALUES ($1, CURRENT_TIMESTAMP, $2) RETURNING *'
       const values = [userPost, user_id]
       const result = await pool.query(query, values)
-      console.log(result.rows)
       res.status(201).json(result.rows[0])
     }
   } catch (error) {
@@ -572,7 +571,7 @@ app.get('/PostResponse', async (req, res) => {
     `
     const result = await pool.query(query, [user_post_id])
     res.status(200).json(result.rows)
-    console.log(result.rows)
+
   } catch (error) {
     console.error('Error fetching comments', error)
     res.status(500).json({ error: 'Internal server error' })
@@ -958,13 +957,14 @@ app.get('/DiscussionComments', async (req, res) => {
   const { discussion_post_id } = req.query
   try {
     const query = `
-    SELECT discussion_comment.*, user_profile.user_profile_name
+    SELECT discussion_comment.*, user_profile.user_profile_name, user_profile.user_profile_id
     FROM discussion_comment
     JOIN user_credentials ON user_credentials.user_id = discussion_comment.user_id
     JOIN discussion_post ON discussion_post.discussion_post_id = discussion_comment.discussion_post_id
     JOIN user_profile ON user_credentials.user_id = user_profile.user_id
     WHERE discussion_post.discussion_post_id = $1
     ORDER BY discussion_post_id;
+    
     `
 
     const result = await pool.query(query, [discussion_post_id])
