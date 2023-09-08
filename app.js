@@ -24,39 +24,40 @@ app.listen(port, () => {
   console.log(`Server is running on port ${port}`)
 })
 
-//generate jwt token function
+//Generates JWT token function using user_id and user_email
 const generateToken = (user) => {
+  //Define payload with user infomration
   const payload = {
     userId: user.user_id,
     useremail: user.user_email,
   }
-
-  //creates secure secret key hashed so it not hardcoded in code
+  //Creates secure secret key hashed, avoids being hardcoded in code
   const generateSecretKey = () => {
     return crypto.randomBytes(64).toString('hex')
   }
-  //creates secret key at random
+  //Creates random secret key to sign token 
   const secretKey = generateSecretKey()
-
+  //Set access token expiration to 1 hour
   const options = {
     expiresIn: '1h',
   }
-
+  //Generate accesstoken with payload and secret key
   const token = jwt.sign(payload, secretKey, options)
-
+  //Generate refresh token nwith user_id and new secret key
   const refreshToken = jwt.sign({ userId: user.user_id }, generateSecretKey(), {
     expiresIn: '30d',
   })
-
+  //Returns access token and refresh token
   return { token, refreshToken }
 }
 
+//Defines storage for multer 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, 'uploads/') // Destination folder where the uploaded files will be saved
   },
   filename: function (req, file, cb) {
-    // Use the current timestamp as the filename to avoid conflicts
+    // Current timestamp used in filename to avoid conflicts
     cb(null, Date.now() + '-' + file.originalname)
   },
 })
@@ -64,40 +65,50 @@ const storage = multer.diskStorage({
 // Initialize the multer middleware with the storage configuration
 const upload = multer({ storage: storage })
 
-//set up log in authentication
+// Endpoint for user login authentication
 app.post('/LogIn', async (req, res) => {
   try {
-    const { userEmail, userPassword } = req.body
-    const query =
-      'SELECT * FROM user_credentials WHERE user_email = $1 AND user_password = $2'
+    // Extract user credentials from the request body
+    const { userEmail, userPassword } = req.body;
+    // SQL query to check if the user exists in the database
+    const query = `SELECT * FROM user_credentials 
+                  WHERE user_email = $1 
+                  AND user_password = $2`
     const values = [userEmail, userPassword]
+    // Execute the SQL query using the database connection pool
     const result = await pool.query(query, values)
-
+    // Check if the query returned any matching user
     if (result.rows.length > 0) {
+      // Retrieve the user details
       const user = result.rows[0]
+      // Generate JWT tokens for the user
       const tokens = generateToken(user)
-      const token = tokens.token
-      refreshToken = tokens.refreshToken
+      const token = tokens.token;
+      refreshToken = tokens.refreshToken;
+      // Send a successful response with tokens and user_id
       res.status(200).json({
         success: true,
         message: 'Authentication successful',
         data: { token, refreshToken, user_id: user.user_id },
       })
     } else {
+      // Send an authentication failed response
       res.status(401).json({ success: false, message: 'Authentication failed' })
     }
   } catch (error) {
-    console.error('Error signing in', error)
+    // Handle any errors that occur during the login process
+    console.error('Error signing in', error);
     res.status(500).json({ error: 'Internal server error' })
   }
 })
 
-//post route for sign up page- email and password
+//Post route for sign up page- email and password
 app.post('/SignUp', async (req, res) => {
   try {
     const { userEmail, userPassword } = req.body
     const query =
-      'INSERT INTO user_credentials (user_email, user_password) VALUES ($1, $2) RETURNING *'
+      `INSERT INTO user_credentials (user_email, user_password) 
+      VALUES ($1, $2) RETURNING *`
     const values = [userEmail, userPassword]
     const result = await pool.query(query, values)
 
@@ -108,12 +119,13 @@ app.post('/SignUp', async (req, res) => {
   }
 })
 
-//route to get user credential details for comparison at sign up
+//Route to get user credential details for comparison at sign up- check if email exists
 app.get('/SignUp', async (req, res) => {
   try {
     const { user_email } = req.query
     const query =
-      'SELECT user_email FROM user_credentials WHERE user_email = $1'
+      `SELECT user_email FROM user_credentials 
+      WHERE user_email = $1`
     const values = [user_email]
     const result = await pool.query(query, values)
 
@@ -124,12 +136,10 @@ app.get('/SignUp', async (req, res) => {
   }
 })
 
-//route to get profile information
-// Route to get profile information and image URL
+// Route to get profile information and image URL using user_id
 app.get('/ProfileEditPage', async (req, res) => {
   try {
     const { user_id } = req.query
-
     const query =
       'SELECT user_profile.*, image.image_path ' +
       'FROM user_profile ' +
@@ -151,8 +161,8 @@ app.get('/ProfileEditPage', async (req, res) => {
   }
 })
 
-//route to get profile information when username clicked on
-// Route to get profile information and image URL
+
+// Route to get profile information and image URL- when username clicked on
 app.get('/ProfileEditPageByUsername', async (req, res) => {
   try {
     const { user_profile_id } = req.query
@@ -168,6 +178,7 @@ app.get('/ProfileEditPageByUsername', async (req, res) => {
       const userProfileWithImage = result.rows[0]
       res.status(200).json(userProfileWithImage)
     } else {
+      //console error for developer, cant retrieve profile
       console.log(
         'User profile not found for user_profile_id:',
         user_profile_id
@@ -180,7 +191,7 @@ app.get('/ProfileEditPageByUsername', async (req, res) => {
   }
 })
 
-//post route to edit profile page
+//Post route to edit profile page
 //Tries to update existing profile, checks if rows changed, then inserts if not
 app.post('/ProfileEditPage', upload.single('image'), async (req, res) => {
   const { userName, userStory, user_id } = req.body
@@ -243,12 +254,11 @@ app.post('/ProfileEditPage', upload.single('image'), async (req, res) => {
   }
 })
 
-//route for user to post new status and image to live feed
+//Route for user to post new status and image to live feed
 app.post('/LiveFeed', upload.single('image'), async (req, res) => {
   try {
     const { userPost, user_id } = req.body
     const image_path = req.file ? req.file.path : null // Check if an image is included in the request
-
     if (image_path) {
       // If an image is present, insert image data into the database
       const imageQuery =
@@ -256,13 +266,11 @@ app.post('/LiveFeed', upload.single('image'), async (req, res) => {
       const imageValues = [image_path]
       const imageResult = await pool.query(imageQuery, imageValues)
       const image_id = imageResult.rows[0].image_id
-
       // Insert image data into the user_image table
       const userImageQuery =
         'INSERT INTO user_image (user_id, image_id, user_post_timestamp) VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING *'
       const userImageValues = [user_id, image_id]
       const userImageResult = await pool.query(userImageQuery, userImageValues)
-
       res.status(201).json(userImageResult.rows[0])
     } else {
       // If no image is present, insert only the text data into the database
@@ -301,12 +309,11 @@ app.post('/DeleteUserImage', async (req, res) => {
       deleteUserImageQuery,
       deleteUserImageValues
     )
-
     // Delete image data from image table
     const deleteImageQuery =
       'DELETE FROM image WHERE image_id = $1 AND NOT EXISTS (SELECT 1 FROM user_image WHERE image_id = image.image_id)'
     await client.query(deleteImageQuery, [user_image_id])
-
+      //Commit transaction
     await client.query('COMMIT')
 
     res
@@ -324,7 +331,7 @@ app.post('/DeleteUserImage', async (req, res) => {
   }
 })
 
-//delete posts from live feed and associated comments and reactions
+//Delete posts from live feed and associated comments and reactions
 app.post('/DeleteLiveFeedPost', async (req, res) => {
   const client = await pool.connect()
   try {
@@ -372,7 +379,8 @@ app.post('/DeleteLiveFeedPost', async (req, res) => {
   }
 })
 
-//gets posts, polls, images ordered by date/time from database
+//Gets posts, polls, images ordered by date/time from database
+//Complex query which requires reconfiguration
 app.get('/LiveFeed', async (req, res) => {
   try {
     const query = `
@@ -474,9 +482,7 @@ app.get('/LiveFeed', async (req, res) => {
       user_poll_result_option_3::text
     FROM user_poll_results
   ) as pr ON user_poll.user_poll_id = pr.user_poll_id
-  ORDER BY user_post_timestamp DESC;
-
-    `
+  ORDER BY user_post_timestamp DESC`
     const result = await pool.query(query)
     res.status(200).json(result.rows)
   } catch (error) {
@@ -485,12 +491,14 @@ app.get('/LiveFeed', async (req, res) => {
   }
 })
 
-//route to post comments to individual posts
+//Route to post comments to individual posts in Live Feed
 app.post('/PostResponse', async (req, res) => {
   try {
     const { userComment, user_post_id, user_id } = req.body
     const query =
-      'INSERT INTO post_comment (post_comment, user_post_id, user_id, post_comment_timestamp) VALUES ($1, $2, $3, CURRENT_TIMESTAMP) RETURNING *'
+      `INSERT INTO post_comment (post_comment, user_post_id, user_id, post_comment_timestamp) 
+      VALUES ($1, $2, $3, CURRENT_TIMESTAMP) RETURNING *`
+
     const values = [userComment, user_post_id, user_id]
     const result = await pool.query(query, values)
 
@@ -501,7 +509,7 @@ app.post('/PostResponse', async (req, res) => {
   }
 })
 
-//delete discussion comment
+//Delete post comment in Live Feed
 app.post('/DeletePostComment', async (req, res) => {
   try {
     const { post_comment_id, user_id } = req.body
@@ -519,12 +527,13 @@ app.post('/DeletePostComment', async (req, res) => {
   }
 })
 
-//post comment to images
+//Post comment to images in Live Feed
 app.post('/ImageResponse', async (req, res) => {
   try {
     const { userComment, user_image_id, user_id } = req.body
     const query =
-      'INSERT INTO image_comment (post_comment, post_comment_timestamp, user_image_id, user_id) VALUES ($1, CURRENT_TIMESTAMP, $2, $3) RETURNING *'
+      `INSERT INTO image_comment (post_comment, post_comment_timestamp, user_image_id, user_id) 
+      VALUES ($1, CURRENT_TIMESTAMP, $2, $3) RETURNING *`
     const values = [userComment, user_image_id, user_id]
     const result = await pool.query(query, values)
 
@@ -535,7 +544,7 @@ app.post('/ImageResponse', async (req, res) => {
   }
 })
 
-//delete image comment
+//Delete image comment in Live Feed
 app.post('/DeleteImageComment', async (req, res) => {
   try {
     const { image_comment_id, user_id } = req.body
@@ -553,7 +562,7 @@ app.post('/DeleteImageComment', async (req, res) => {
   }
 })
 
-//Renders comments and user profile name on each post
+//Renders comments and user profile name on each post in Live Feed
 app.get('/PostResponse', async (req, res) => {
   const { user_post_id } = req.query
   try {
@@ -562,13 +571,12 @@ app.get('/PostResponse', async (req, res) => {
     post_comment.*,
     user_profile.user_profile_name,
     user_profile.user_profile_id
-  FROM post_comment
-  JOIN user_credentials ON user_credentials.user_id = post_comment.user_id
-  JOIN user_post ON user_post.user_post_id = post_comment.user_post_id
-  JOIN user_profile ON user_credentials.user_id = user_profile.user_id
-  WHERE user_post.user_post_id = $1
-  ORDER BY post_comment_timestamp ASC;
-    `
+    FROM post_comment
+    JOIN user_credentials ON user_credentials.user_id = post_comment.user_id
+    JOIN user_post ON user_post.user_post_id = post_comment.user_post_id
+    JOIN user_profile ON user_credentials.user_id = user_profile.user_id
+    WHERE user_post.user_post_id = $1
+    ORDER BY post_comment_timestamp ASC`
     const result = await pool.query(query, [user_post_id])
     res.status(200).json(result.rows)
 
@@ -578,7 +586,7 @@ app.get('/PostResponse', async (req, res) => {
   }
 })
 
-//Renders comments and user profile name on each image
+//Renders comments and user profile name on each image in Live Feed
 app.get('/ImageResponse', async (req, res) => {
   const { user_image_id } = req.query
   try {
@@ -594,9 +602,7 @@ app.get('/ImageResponse', async (req, res) => {
   JOIN user_image ON user_image.user_image_id = image_comment.user_image_id
   JOIN image ON user_image.image_id = image.image_id
   WHERE image_comment.user_image_id = $1
-  ORDER BY post_comment_timestamp DESC;
-
-    `
+  ORDER BY post_comment_timestamp DESC`
 
     const result = await pool.query(query, [user_image_id])
 
@@ -607,7 +613,7 @@ app.get('/ImageResponse', async (req, res) => {
   }
 })
 
-//post emoji reactions to database for posts
+//Post emoji reactions to database for posts in Live Feed
 app.post('/SubmitReaction', async (req, res) => {
   try {
     const { user_post_id, reactionType } = req.body
@@ -635,7 +641,8 @@ app.post('/SubmitReaction', async (req, res) => {
       reactionValues[reactionType] += 1
 
       const queryInsert =
-        'INSERT INTO post_reactions (user_post_id, post_like, post_love, post_laugh, post_sad, post_anger) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *'
+        `INSERT INTO post_reactions (user_post_id, post_like, post_love, post_laugh, post_sad, post_anger) 
+        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`
       const valuesInsert = [
         user_post_id,
         reactionValues.like,
@@ -661,7 +668,8 @@ app.post('/SubmitReaction', async (req, res) => {
       reactionValues[reactionType] += 1
 
       const queryUpdate =
-        'UPDATE post_reactions SET post_like = $1, post_love = $2, post_laugh = $3, post_sad = $4, post_anger = $5 WHERE user_post_id = $6 RETURNING *'
+        `UPDATE post_reactions SET post_like = $1, post_love = $2, post_laugh = $3, post_sad = $4, post_anger = $5 
+        WHERE user_post_id = $6 RETURNING *`
       const valuesUpdate = [
         reactionValues.like,
         reactionValues.love,
@@ -675,15 +683,15 @@ app.post('/SubmitReaction', async (req, res) => {
       res.status(200).json(resultUpdate.rows[0])
     }
 
-    // Delete any duplicate rows in post_reactions
+    // Delete any duplicate rows in post_reactions for user posts
     const queryDeleteDuplicateRows = `
       DELETE FROM post_reactions
       WHERE ctid NOT IN (
         SELECT min(ctid)
         FROM post_reactions
         GROUP BY user_post_id, post_like, post_love, post_laugh, post_sad, post_anger
-      )
-    `
+      )`
+
     await pool.query(queryDeleteDuplicateRows)
   } catch (error) {
     console.error('Error submitting post', error)
@@ -691,7 +699,7 @@ app.post('/SubmitReaction', async (req, res) => {
   }
 })
 
-//post emoji reactions to database for images
+//Post emoji reactions for images in Live Feed
 app.post('/SubmitImageReaction', async (req, res) => {
   try {
     const { user_image_id, reactionType } = req.body
@@ -719,7 +727,8 @@ app.post('/SubmitImageReaction', async (req, res) => {
       reactionValues[reactionType] += 1
 
       const queryInsert =
-        'INSERT INTO image_reactions (user_image_id, post_like, post_love, post_laugh, post_sad, post_anger) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *'
+        `INSERT INTO image_reactions (user_image_id, post_like, post_love, post_laugh, post_sad, post_anger) 
+        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`
       const valuesInsert = [
         user_image_id,
         reactionValues.like,
@@ -775,12 +784,14 @@ app.post('/SubmitImageReaction', async (req, res) => {
   }
 })
 
-//posts new user poll
+//Posts new user poll to Live Feed
 app.post('/UserPoll', async (req, res) => {
   try {
     const { pollQuestion, pollOptions, user_id } = req.body
     const query =
-      'INSERT INTO user_poll (user_poll_question, user_poll_option_1, user_poll_option_2, user_poll_option_3, user_id, user_post_timestamp) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) RETURNING *'
+      `INSERT INTO user_poll 
+      (user_poll_question, user_poll_option_1, user_poll_option_2, user_poll_option_3, user_id, user_post_timestamp) 
+      VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) RETURNING *`
     const values = [
       pollQuestion,
       pollOptions[0],
@@ -797,7 +808,7 @@ app.post('/UserPoll', async (req, res) => {
   }
 })
 
-//gets poll data
+//Gets poll data for results in Live Feed
 app.get('/pollResults', async (req, res) => {
   const { user_poll_id } = req.query
   try {
@@ -815,8 +826,8 @@ app.get('/pollResults', async (req, res) => {
   }
 })
 
-//set up post route for poll vote and user ensure to ensure 1 vote only
-//needs fixing
+//Post route for poll vote and user_id to ensure 1 vote only
+//Does not currently persist on front end
 app.get('/pollResults', async (req, res) => {
   const { user_poll_id, user_id } = req.query
   try {
@@ -832,23 +843,24 @@ app.get('/pollResults', async (req, res) => {
   }
 })
 
-//get the poll results
+//Posts poll vote cast in Live Feed
 app.post('/pollResults', async (req, res) => {
   try {
     const { pollResult, user_poll_id, user_id } = req.body
-
     // Fetch the existing poll results for the given user_poll_id
     const fetchQuery = 'SELECT * FROM user_poll_results WHERE user_poll_id = $1'
     const fetchValues = [user_poll_id]
     const fetchResult = await pool.query(fetchQuery, fetchValues)
-
     if (fetchResult.rows.length > 0) {
-      // If a row exists, get the current poll options
+      // If a row exists, get the current poll results
       const currentOptions = fetchResult.rows[0]
-
       // Update the selected poll option
       const updateQuery =
-        'UPDATE user_poll_results SET user_poll_result_option_1 = $1, user_poll_result_option_2 = $2, user_poll_result_option_3 = $3 WHERE user_poll_id = $4 RETURNING *'
+        `UPDATE user_poll_results SET 
+        user_poll_result_option_1 = $1, 
+        user_poll_result_option_2 = $2, 
+        user_poll_result_option_3 = $3 
+        WHERE user_poll_id = $4 RETURNING *`
       const updateValues = [
         currentOptions.user_poll_result_option_1 +
           (pollResult === 'Option 1' ? 1 : 0),
@@ -858,8 +870,8 @@ app.post('/pollResults', async (req, res) => {
           (pollResult === 'Option 3' ? 1 : 0),
         user_poll_id,
       ]
-      const updateResult = await pool.query(updateQuery, updateValues)
 
+      const updateResult = await pool.query(updateQuery, updateValues)
       // Insert the user_poll_id and user_id into user_poll_vote table
       const insertVoteQuery =
         'INSERT INTO user_poll_vote (user_poll_id, user_id) VALUES ($1, $2)'
@@ -870,7 +882,12 @@ app.post('/pollResults', async (req, res) => {
     } else {
       // If a row does not exist, perform an insert with the selected poll option
       const insertQuery =
-        'INSERT INTO user_poll_results (user_poll_id, user_poll_result_option_1, user_poll_result_option_2, user_poll_result_option_3) VALUES ($1, $2, $3, $4) RETURNING *'
+        `INSERT INTO user_poll_results 
+        (user_poll_id, 
+        user_poll_result_option_1, 
+        user_poll_result_option_2, 
+        user_poll_result_option_3) 
+        VALUES ($1, $2, $3, $4) RETURNING *`
       const insertValues = [
         user_poll_id,
         pollResult === 'Option 1' ? 1 : 0,
@@ -878,7 +895,6 @@ app.post('/pollResults', async (req, res) => {
         pollResult === 'Option 3' ? 1 : 0,
       ]
       const insertResult = await pool.query(insertQuery, insertValues)
-
       // Insert the user_poll_id and user_id into user_poll_vote table
       const insertVoteQuery =
         'INSERT INTO user_poll_vote (user_poll_id, user_id) VALUES ($1, $2)'
@@ -892,7 +908,7 @@ app.post('/pollResults', async (req, res) => {
   }
 })
 
-//route to get report categories for dropdown menu in front end
+//Route to get report categories for dropdown menu in front end
 app.get('/reportCategory', async (req, res) => {
   try {
     const query = `
@@ -906,7 +922,7 @@ app.get('/reportCategory', async (req, res) => {
   }
 })
 
-//post route for report function
+//Post route for report function
 app.post('/Report', async (req, res) => {
   try {
     const { reportText, user_id, report_category_id } = req.body
@@ -922,7 +938,7 @@ app.post('/Report', async (req, res) => {
   }
 })
 
-//post route for admin only to discussion board
+//Post route for admin only to discussion board
 app.post('/DiscussionPost', async (req, res) => {
   try {
     const { discussionText } = req.body
@@ -938,7 +954,7 @@ app.post('/DiscussionPost', async (req, res) => {
   }
 })
 
-//gets all discussion posts
+//Gets all discussion posts for discussion feed
 app.get('/DiscussionPost', async (req, res) => {
   try {
     const query = `
@@ -963,9 +979,7 @@ app.get('/DiscussionComments', async (req, res) => {
     JOIN discussion_post ON discussion_post.discussion_post_id = discussion_comment.discussion_post_id
     JOIN user_profile ON user_credentials.user_id = user_profile.user_id
     WHERE discussion_post.discussion_post_id = $1
-    ORDER BY discussion_post_id;
-    
-    `
+    ORDER BY discussion_post_id`
 
     const result = await pool.query(query, [discussion_post_id])
     res.status(200).json(result.rows)
@@ -975,12 +989,13 @@ app.get('/DiscussionComments', async (req, res) => {
   }
 })
 
-//route to post comments to individual discussion posts
+//Route to post comments to individual discussion posts
 app.post('/DiscussionComments', async (req, res) => {
   try {
     const { userComment, discussion_post_id, user_id } = req.body
     const query =
-      'INSERT INTO discussion_comment (discussion_comment, discussion_post_id, user_id, post_comment_timestamp) VALUES ($1, $2, $3, CURRENT_TIMESTAMP) RETURNING *'
+      `INSERT INTO discussion_comment (discussion_comment, discussion_post_id, user_id, post_comment_timestamp) 
+      VALUES ($1, $2, $3, CURRENT_TIMESTAMP) RETURNING *`
     const values = [userComment, discussion_post_id, user_id]
     const result = await pool.query(query, values)
 
@@ -991,7 +1006,7 @@ app.post('/DiscussionComments', async (req, res) => {
   }
 })
 
-//delete discussion comment
+//Delete discussion comment by user_id
 app.post('/DeleteDiscussionComment', async (req, res) => {
   try {
     const { discussion_comment_id } = req.body
@@ -1012,23 +1027,27 @@ app.post('/DeleteDiscussionComment', async (req, res) => {
   }
 })
 
-//gets all discussion posts with valid search parameter
+// Handles requests to search for discussion posts based on a search term.
 app.get('/DiscussionPostSearch', async (req, res) => {
   try {
-    const searchTerm = req.query.searchTerm
-    const query = `
-      SELECT * FROM discussion_post
-      WHERE discussion_post ILIKE $1
-    `
+    const searchTerm = req.query.searchTerm;
+    const query = 
+      `SELECT * FROM discussion_post
+       WHERE discussion_post ILIKE $1`;
+    // Execute the SQL query with the search term as a parameter
+    //using parameterised queries to prevent SQL injection.
     const result = await pool.query(query, [`%${searchTerm}%`])
-    res.status(200).json(result.rows)
+
+    // Respond with a JSON array of discussion posts that match the search term.
+    res.status(200).json(result.rows);
   } catch (error) {
-    console.error('Error fetching discussion posts', error)
-    res.status(500).json({ error: 'Internal server error' })
+    console.error('Error fetching discussion posts', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 })
 
-//gets all discussion posts with valid search parameter
+
+//Gets all discussion posts within valid search parameter
 app.get('/LiveFeedSearch', async (req, res) => {
   try {
     const searchTerm = req.query.searchTerm
